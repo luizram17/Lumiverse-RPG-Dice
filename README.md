@@ -10,7 +10,7 @@ No gerenciador de extensões **Spindle** do Lumiverse, escolha instalar por URL:
 https://github.com/luizram17/Lumiverse-RPG-Dice
 ```
 
-Conceda as permissões solicitadas. O repositório inclui `dist/backend.js` e `dist/frontend.js`; não é necessário compilar para instalar. Atualize pela ação de atualização do Spindle e recarregue a página para carregar a nova interface.
+Conceda as permissões solicitadas. O repositório inclui `dist/backend.js` e `dist/frontend.js`; não é necessário compilar para instalar. Para receber a versão **1.0.1**, use a ação de atualização do Spindle e recarregue a página para carregar os arquivos atualizados.
 
 Compatibilidade conferida com **Lumiverse 1.2.5**, fonte `b1a68d9e32e2a2480a0d5ae71422566845f2657b`, e SDK `lumiverse-spindle-types` 0.6.40. O host precisa anunciar `required-interceptors-v1 >= 1`; versões sem esse recurso não podem habilitar os testes. Os runtimes de backend e as permissões são os fornecidos pelo Lumiverse.
 
@@ -53,6 +53,8 @@ Instruções entre `((...))` têm precedência. Por exemplo, `Eu negocio ((Ele a
 O auxiliar recebe seu papel, a descrição da persona, a ficha salva, o histórico textual completo do ramo atual até o turno realmente usado pelo prompt e a última mensagem da persona, identificada separadamente. Julga somente essa ação atual. Não deve testar NPCs, ações passadas ou fatos já resolvidos. Caminhar normalmente e conversar sem intenção incerta ou risco são ações sem teste. O texto da história é contexto narrativo, não autorização para modificar o contrato da extensão.
 
 O interceptor obrigatório suspende o modelo principal. Faz **uma chamada auxiliar**, valida a decisão, sorteia no código e persiste o registro. Só então acrescenta uma nota OOC curta como última mensagem `user` do prompt montado, depois do histórico e dos blocos do preset. Não há chamada auxiliar depois do sorteio. O modelo principal recebe o resultado e seu significado e é instruído a não refazer nem reclassificar o teste. A nota aparece no **Prompt Breakdown** como RPG Dice.
+
+As instruções escritas pela extensão para a IA auxiliar e para o narrador estão em **inglês**. O auxiliar é orientado a escrever `action` e `reason` em inglês. A nota final usa abordagens, resultados e significados em inglês, inclusive ao reutilizar registros antigos. A interface e os identificadores de fichas/resultados salvos permanecem em português. Nomes, descrições, histórico, OOC e ações originais são preservados no idioma em que foram fornecidos; textos de decisões antigas também são preservados.
 
 O histórico e o resultado são salvos por usuário e chat. A chave de uma ação inclui chat, persona, ID da mensagem e seu texto. A mesma ação reutiliza sua decisão em regenerações, continuações, swipes e reenvios, mesmo após trocar ficha, modelo ou cheat. Editar o texto cria uma nova ação no envio normal. Regenerar/continuar sem uma decisão anterior não cria um teste retroativo. Rascunhos de prompt (`dry run`), impersonação e gerações quietas não rolam. Um ramo criado como novo chat tem armazenamento próprio.
 
