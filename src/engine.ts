@@ -1,5 +1,5 @@
 import type { SpindleAPI, InterceptorContextDTO, LlmMessageDTO, PersonaDTO } from 'lumiverse-spindle-types';
-import { defaultScores, fateDice, forcedOoc, forceOutcome, outcomes, oocParts, parseDecision, refereePrompt, resolveRoll, validateScores, type Decision, type Roll, type Scores, type Fudge, type Outcome } from './rules';
+import { defaultScores, fateDice, forcedOoc, forceOutcome, modelApproaches, modelOutcomes, outcomes, oocParts, parseDecision, refereePrompt, resolveRoll, validateScores, type Decision, type Roll, type Scores, type Fudge, type Outcome } from './rules';
 export interface Settings { enabled: boolean; connectionId: string; model: string }
 export interface Audit { key: string; chatId: string; personaId: string; personaName: string; messageId: string; actionText: string; timestamp: string; decision: Decision; roll?: Roll; fudge?: Fudge; connectionId: string; model: string }
 export interface State { version: 1; settings: Settings; personas: Record<string, Scores>; position?: { x: number; y: number } }
@@ -26,8 +26,9 @@ function cleanInline(text: string): string { return text.replace(/[\r\n]+/g, ' '
 export function inject(messages: LlmMessageDTO[], audit: Audit) {
   if (!audit.roll) return { messages };
   const r = audit.roll;
-  const cheat = audit.fudge ? ' CHEAT autorizado: resultado garantido por OOC, prevalece sobre a comparação numérica.' : '';
-  const note = `((Teste de habilidade feito automaticamente para personagem ${cleanInline(audit.personaName)} (${audit.decision.approach}). Ação: ${cleanInline(audit.decision.action || '')}. Resultado: ${r.outcome} — ${r.meaning}.${cheat} Respeite todo OOC; não refaça nem reclassifique o teste.))`;
+  const outcome = modelOutcomes[r.outcome as Outcome];
+  const cheat = audit.fudge ? ' Authorized CHEAT: this OOC-guaranteed outcome overrides the numerical comparison.' : '';
+  const note = `((An automatic skill check was completed for character ${cleanInline(audit.personaName)} (${modelApproaches[audit.decision.approach!]}). Action: ${cleanInline(audit.decision.action || '')}. Result: ${outcome.label} — ${outcome.meaning}.${cheat} Respect all OOC instructions; do not reroll or reclassify this check.))`;
   return { messages: [...messages, { role: 'user' as const, content: note }], breakdown: [{ messageIndex: messages.length, name: 'RPG Dice — resultado automático' }] };
 }
 export class DiceEngine {
