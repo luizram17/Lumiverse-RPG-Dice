@@ -1,12 +1,19 @@
 {
-  "version": "1.0.1",
+  "version": "1.0.2",
   "name": "RPG Dice",
   "identifier": "rpg_dice",
   "author": "luizram17",
   "github": "https://github.com/luizram17/Lumiverse-RPG-Dice",
   "homepage": "https://github.com/luizram17/Lumiverse-RPG-Dice",
   "description": "Testes Fate Accelerated automáticos para a persona, com árbitro auxiliar, dado flutuante, histórico e cheats explícitos.",
-  "permissions": ["generation", "interceptor", "personas", "chats", "chat_mutation", "ui_panels"],
+  "permissions": [
+    "generation",
+    "interceptor",
+    "personas",
+    "chats",
+    "chat_mutation",
+    "ui_panels"
+  ],
   "entry_backend": "dist/backend.js",
   "entry_frontend": "dist/frontend.js",
   "minimum_lumiverse_version": "1.2.5",

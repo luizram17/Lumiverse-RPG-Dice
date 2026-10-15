@@ -1,1 +1,20 @@
-{"name":"lumiverse-rpg-dice","version":"1.0.1","private":true,"type":"module","scripts":{"build":"bun build src/backend.ts src/frontend.ts --outdir dist --target browser --format esm","typecheck":"tsc --noEmit","test":"bun test ./tests/rules.test.ts ./tests/engine.test.ts ./tests/frontend.test.ts","check":"bun run typecheck && bun run test && bun run build","test:host":"bun run tests/host-integration.ts"},"devDependencies":{"lumiverse-spindle-types":"0.6.40","typescript":"^5.9.3","@types/bun":"^1.3.0","jsdom":"^26.1.0","@types/jsdom":"^21.1.7"}}
+{
+  "name": "lumiverse-rpg-dice",
+  "version": "1.0.2",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "bun build src/backend.ts src/frontend.ts --outdir dist --target browser --format esm",
+    "typecheck": "tsc --noEmit",
+    "test": "bun test ./tests/rules.test.ts ./tests/engine.test.ts ./tests/frontend.test.ts",
+    "check": "bun run typecheck && bun run test && bun run build",
+    "test:host": "bun run tests/host-integration.ts"
+  },
+  "devDependencies": {
+    "lumiverse-spindle-types": "0.6.40",
+    "typescript": "^5.9.3",
+    "@types/bun": "^1.3.0",
+    "jsdom": "^26.1.0",
+    "@types/jsdom": "^21.1.7"
+  }
+}

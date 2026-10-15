@@ -13,13 +13,22 @@ export function setup(ctx: SpindleFrontendContext) {
     .rpg-dice-float{width:56px;height:56px;border-radius:16px;background:#272134;border:1px solid #ad8ee7;color:#f6edff;font-size:34px;cursor:grab;opacity:.6;box-shadow:0 5px 20px #0006;touch-action:none;transition:opacity .15s}.rpg-dice-float:hover,.rpg-dice-float:focus-visible{opacity:1;outline:2px solid #ceb0ff}
   `);
   const drawer = ctx.ui.registerDrawerTab({ id: 'rpg_dice', title: 'RPG Dice', shortName: 'Dados', description: 'Testes automáticos, histórico e ficha da persona', keywords: ['dados', 'rpg', 'fate', 'rolagem'] });
-  const settingsTab = ctx.ui.registerSettingsTab?.({ id: 'rpg_dice', title: 'RPG Dice', description: 'Perfil e modelo auxiliares, ficha e dados automáticos', keywords: ['dados', 'modelo', 'persona'] });
-  const float = ctx.ui.createFloatWidget({ width: 56, height: 56, chromeless: true, snapToEdge: false, tooltip: 'RPG Dice — arraste para mover; clique para histórico' });
-  const diceButton = document.createElement('button'); diceButton.className = 'rpg-dice-float'; diceButton.textContent = '⚄'; diceButton.setAttribute('aria-label', 'Abrir histórico de rolagens RPG Dice; arraste para mover'); float.root.append(diceButton);
+  // Some host versions do not have registerSettingsTab. Use their settings
+  // mount when possible; the free drawer tab always remains accessible.
+  let settingsTab: ReturnType<NonNullable<SpindleFrontendContext['ui']['registerSettingsTab']>> | undefined;
+  try { settingsTab = ctx.ui.registerSettingsTab?.({ id: 'rpg_dice', title: 'RPG Dice', description: 'Perfil e modelo auxiliares, ficha e dados automáticos', keywords: ['dados', 'modelo', 'persona'] }); } catch {}
+  let settingsMount: HTMLElement | undefined;
+  if (!settingsTab) { try { settingsMount = ctx.ui.mount('settings_extensions'); } catch {} }
+  // A declined/revoked ui_panels permission must not disable all settings UI.
+  let float: ReturnType<SpindleFrontendContext['ui']['createFloatWidget']> | undefined;
+  try { float = ctx.ui.createFloatWidget({ width: 56, height: 56, chromeless: true, snapToEdge: false, tooltip: 'RPG Dice — arraste para mover; clique para histórico' }); } catch {}
+  const diceButton = document.createElement('button'); diceButton.className = 'rpg-dice-float'; diceButton.textContent = '⚄'; diceButton.setAttribute('aria-label', 'Abrir histórico de rolagens RPG Dice; arraste para mover'); float?.root.append(diceButton);
   let view: View | undefined; let selectedPersona = ''; let status = ''; let disposed = false; let modal: ReturnType<SpindleFrontendContext['ui']['showModal']> | undefined; let busy = false; let latestRequest = ''; let positioned = false;
-  const roots = [drawer.root, ...(settingsTab ? [settingsTab.root] : [])];
+  const roots = [drawer.root, ...(settingsTab ? [settingsTab.root] : []), ...(settingsMount ? [settingsMount] : [])];
   const modelMounts = new Map<HTMLElement, ReturnType<SpindleFrontendContext['components']['mountModelCombobox']>>();
-  const request = (payload: Record<string, unknown> = {}) => { latestRequest = crypto.randomUUID(); ctx.sendToBackend({ type: 'load', ...payload, requestId: latestRequest }); };
+  // crypto.randomUUID() is absent on insecure HTTP LAN origins.
+  let requestNumber = 0;
+  const request = (payload: Record<string, unknown> = {}) => { latestRequest = `rpg-dice-${++requestNumber}`; ctx.sendToBackend({ type: 'load', ...payload, requestId: latestRequest }); };
   function element<K extends keyof HTMLElementTagNameMap>(tag: K, text = '', className = '') { const e = document.createElement(tag); e.textContent = text; if (className) e.className = className; return e; }
   function field(parent: HTMLElement, title: string, control: HTMLElement) { const label = element('label', title); label.append(control); parent.append(label); }
   function showStatus(message: string) { status = message; for (const root of roots) { const target = root.querySelector('.rpg-status'); if (target) target.textContent = message; } if (modal) { const target = modal.root.querySelector('.rpg-status'); if (target) target.textContent = message; } }
@@ -27,13 +36,23 @@ export function setup(ctx: SpindleFrontendContext) {
   function renderConfig(root: HTMLElement) {
     modelMounts.get(root)?.destroy(); modelMounts.delete(root);
     root.replaceChildren(); const panel = element('div', '', 'rpg-dice'); root.append(panel); panel.append(element('h2', 'RPG Dice'), element('p', 'Fate Accelerated adaptado: a IA julga a ação; o código sorteia os dados.'), element('p', status, 'rpg-status'));
-    if (!view) { panel.append(element('p', 'Carregando configurações…')); return; }
+    if (!float) panel.append(element('p', 'Dado flutuante indisponível: conceda a permissão ui_panels em Extensões → RPG Dice. Você ainda pode configurar e abrir o histórico por esta aba.', 'rpg-muted'));
+    if (!view) { panel.append(element('p', status ? 'Falha ao carregar. Verifique se a extensão está habilitada e tente novamente.' : 'Carregando configurações…')); const retry = element('button', 'Recarregar'); retry.addEventListener('click', () => request()); panel.append(retry); return; }
     if (!view.supported) panel.append(element('p', 'Lumiverse incompatível. Atualize para uma versão com interceptores obrigatórios antes de habilitar.'));
     const enabled = element('input'); enabled.type = 'checkbox'; enabled.checked = view.state.settings.enabled; enabled.disabled = !view.supported; field(panel, ' Habilitar testes automáticos ', enabled);
     const connection = element('select'); connection.append(new Option('Selecione o perfil auxiliar', '')); for (const c of view.connections) connection.append(new Option(`${c.name} · ${c.provider}`, c.id)); connection.value = view.state.settings.connectionId; field(panel, 'Perfil de conexão auxiliar', connection);
     const modelSlot = element('div'); field(panel, 'Modelo auxiliar (independente do principal)', modelSlot);
     let modelValue = view.state.settings.model;
-    const mountModel = () => { modelMounts.get(root)?.destroy(); modelSlot.replaceChildren(); const handle = ctx.components.mountModelCombobox(modelSlot, { value: modelValue, ...(connection.value ? { connection: { kind: 'llm' as const, id: connection.value } } : { models: [] }), appearance: 'standard', placeholder: 'Selecione ou digite o ID exato do modelo', emptyMessage: 'Sem modelos disponíveis; digite um ID válido.', loadingMessage: 'Carregando modelos…', disabled: !connection.value, onChange: value => { modelValue = value; } }); modelMounts.set(root, handle); };
+    const mountModel = () => {
+      modelMounts.get(root)?.destroy(); modelMounts.delete(root); modelSlot.replaceChildren();
+      try {
+        const handle = ctx.components.mountModelCombobox(modelSlot, { value: modelValue, ...(connection.value ? { connection: { kind: 'llm' as const, id: connection.value } } : { models: [] }), appearance: 'standard', placeholder: 'Selecione ou digite o ID exato do modelo', emptyMessage: 'Sem modelos disponíveis; digite um ID válido.', loadingMessage: 'Carregando modelos…', disabled: !connection.value, onChange: value => { modelValue = value; } });
+        modelMounts.set(root, handle);
+      } catch {
+        const input = element('input'); input.type = 'text'; input.value = modelValue; input.placeholder = 'ID exato do modelo'; input.disabled = !connection.value;
+        input.addEventListener('input', () => { modelValue = input.value; }); modelSlot.append(input);
+      }
+    };
     mountModel(); connection.addEventListener('change', () => { modelValue = view!.connections.find(c => c.id === connection.value)?.model || ''; mountModel(); });
     panel.append(element('p', 'Cadastre a chave no gerenciador de conexões do Lumiverse. Esta extensão armazena somente os IDs de perfil e modelo. O histórico completo do chat atual e a descrição da persona serão enviados ao perfil auxiliar escolhido.', 'rpg-muted'));
     const saveSettings = element('button', 'Salvar configurações'); saveSettings.disabled = busy; saveSettings.addEventListener('click', () => save({ settings: { enabled: enabled.checked, connectionId: connection.value, model: modelMounts.get(root)?.getValue() || modelValue } })); panel.append(saveSettings);
@@ -58,13 +77,13 @@ export function setup(ctx: SpindleFrontendContext) {
     const toggles = element('div', '', 'rpg-toggle-grid'); const chatId = view.chat.id;
     for (const outcome of outcomes) { const b = element('button', outcome); b.setAttribute('aria-pressed', String(view.ledger.activeCheat === outcome)); b.disabled = busy; b.addEventListener('click', () => { if (busy) return; busy = true; for (const button of toggles.querySelectorAll('button')) button.disabled = true; showStatus('Salvando cheat…'); request({ type: 'cheat', chatId, outcome: view!.ledger!.activeCheat === outcome ? null : outcome }); }); toggles.append(b); } panel.append(toggles);
     panel.append(element('p', 'Os dados e o total natural continuam visíveis. O resultado escolhido prevalece, marcado como CHEAT no histórico e no prompt. Regenerar uma resposta mantém o teste já feito.', 'rpg-muted'));
-    const log = element('div', '', 'rpg-log'); log.setAttribute('aria-label', 'Histórico de rolagens'); const rolls = view.ledger.records.filter(a => a.roll).toReversed(); if (!rolls.length) log.append(element('p', 'Ainda não há rolagens neste chat.')); for (const a of rolls) log.append(auditArticle(a)); panel.append(element('h3', `${rolls.length} rolagem(ns)`), log);
+    const log = element('div', '', 'rpg-log'); log.setAttribute('aria-label', 'Histórico de rolagens'); const rolls = view.ledger.records.filter(a => a.roll).reverse(); if (!rolls.length) log.append(element('p', 'Ainda não há rolagens neste chat.')); for (const a of rolls) log.append(auditArticle(a)); panel.append(element('h3', `${rolls.length} rolagem(ns)`), log);
   }
   function render() { roots.forEach(renderConfig); renderHistory(); }
   function openHistory() { if (modal) return; modal = ctx.ui.showModal({ title: 'RPG Dice — histórico e cheats' }); modal.onDismiss(() => { modal = undefined; }); renderHistory(); request(); }
   diceButton.addEventListener('click', openHistory);
-  const clamp = () => { const p = clampPosition(float.getPosition(), window.innerWidth, window.innerHeight); float.moveTo(p.x, p.y); };
-  const dragOff = float.onDragEnd(p => { const position = clampPosition(p, window.innerWidth, window.innerHeight); float.moveTo(position.x, position.y); ctx.sendToBackend({ type: 'position', position }); });
+  const clamp = () => { if (!float) return; const p = clampPosition(float.getPosition(), window.innerWidth, window.innerHeight); float.moveTo(p.x, p.y); };
+  const dragOff = float?.onDragEnd(p => { if (!float) return; const position = clampPosition(p, window.innerWidth, window.innerHeight); float.moveTo(position.x, position.y); ctx.sendToBackend({ type: 'position', position }); }) ?? (() => {});
   window.addEventListener('resize', clamp);
   const unsub = ctx.onBackendMessage(raw => {
     if (disposed || !raw || typeof raw !== 'object') return; const p = raw as Record<string, unknown>;
@@ -72,11 +91,11 @@ export function setup(ctx: SpindleFrontendContext) {
     if (p.requestId !== latestRequest) return;
     busy = false;
     if (p.type === 'error') { status = String(p.message); render(); return; }
-    if (p.type === 'view') { view = p as unknown as View; status = ''; if (!positioned) { positioned = true; if (view.state.position) float.moveTo(view.state.position.x, view.state.position.y); clamp(); } render(); }
+    if (p.type === 'view') { view = p as unknown as View; status = ''; if (!positioned) { positioned = true; if (view.state.position) float?.moveTo(view.state.position.x, view.state.position.y); clamp(); } render(); }
   });
   const offChat = ctx.events.on('CHAT_SWITCHED', () => { busy = false; view = undefined; render(); request(); });
   const offActivate = drawer.onActivate(() => request()); const offSettings = settingsTab?.onActivate(() => request());
   render(); request();
-  return () => { disposed = true; unsub(); offChat(); offActivate(); offSettings?.(); dragOff(); window.removeEventListener('resize', clamp); modal?.dismiss(); for (const handle of modelMounts.values()) handle.destroy(); modelMounts.clear(); float.destroy(); settingsTab?.destroy(); drawer.destroy(); removeStyle(); };
+  return () => { disposed = true; unsub(); offChat(); offActivate(); offSettings?.(); dragOff(); window.removeEventListener('resize', clamp); modal?.dismiss(); for (const handle of modelMounts.values()) handle.destroy(); modelMounts.clear(); float?.destroy(); settingsTab?.destroy(); drawer.destroy(); removeStyle(); };
 }
 

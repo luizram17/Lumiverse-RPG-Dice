@@ -93,13 +93,25 @@ function setup(ctx) {
     .rpg-dice-float{width:56px;height:56px;border-radius:16px;background:#272134;border:1px solid #ad8ee7;color:#f6edff;font-size:34px;cursor:grab;opacity:.6;box-shadow:0 5px 20px #0006;touch-action:none;transition:opacity .15s}.rpg-dice-float:hover,.rpg-dice-float:focus-visible{opacity:1;outline:2px solid #ceb0ff}
   `);
   const drawer = ctx.ui.registerDrawerTab({ id: "rpg_dice", title: "RPG Dice", shortName: "Dados", description: "Testes automáticos, histórico e ficha da persona", keywords: ["dados", "rpg", "fate", "rolagem"] });
-  const settingsTab = ctx.ui.registerSettingsTab?.({ id: "rpg_dice", title: "RPG Dice", description: "Perfil e modelo auxiliares, ficha e dados automáticos", keywords: ["dados", "modelo", "persona"] });
-  const float = ctx.ui.createFloatWidget({ width: 56, height: 56, chromeless: true, snapToEdge: false, tooltip: "RPG Dice — arraste para mover; clique para histórico" });
+  let settingsTab;
+  try {
+    settingsTab = ctx.ui.registerSettingsTab?.({ id: "rpg_dice", title: "RPG Dice", description: "Perfil e modelo auxiliares, ficha e dados automáticos", keywords: ["dados", "modelo", "persona"] });
+  } catch {}
+  let settingsMount;
+  if (!settingsTab) {
+    try {
+      settingsMount = ctx.ui.mount("settings_extensions");
+    } catch {}
+  }
+  let float;
+  try {
+    float = ctx.ui.createFloatWidget({ width: 56, height: 56, chromeless: true, snapToEdge: false, tooltip: "RPG Dice — arraste para mover; clique para histórico" });
+  } catch {}
   const diceButton = document.createElement("button");
   diceButton.className = "rpg-dice-float";
   diceButton.textContent = "⚄";
   diceButton.setAttribute("aria-label", "Abrir histórico de rolagens RPG Dice; arraste para mover");
-  float.root.append(diceButton);
+  float?.root.append(diceButton);
   let view;
   let selectedPersona = "";
   let status = "";
@@ -108,10 +120,11 @@ function setup(ctx) {
   let busy = false;
   let latestRequest = "";
   let positioned = false;
-  const roots = [drawer.root, ...settingsTab ? [settingsTab.root] : []];
+  const roots = [drawer.root, ...settingsTab ? [settingsTab.root] : [], ...settingsMount ? [settingsMount] : []];
   const modelMounts = new Map;
+  let requestNumber = 0;
   const request = (payload = {}) => {
-    latestRequest = crypto.randomUUID();
+    latestRequest = `rpg-dice-${++requestNumber}`;
     ctx.sendToBackend({ type: "load", ...payload, requestId: latestRequest });
   };
   function element(tag, text = "", className = "") {
@@ -151,8 +164,13 @@ function setup(ctx) {
     const panel = element("div", "", "rpg-dice");
     root.append(panel);
     panel.append(element("h2", "RPG Dice"), element("p", "Fate Accelerated adaptado: a IA julga a ação; o código sorteia os dados."), element("p", status, "rpg-status"));
+    if (!float)
+      panel.append(element("p", "Dado flutuante indisponível: conceda a permissão ui_panels em Extensões → RPG Dice. Você ainda pode configurar e abrir o histórico por esta aba.", "rpg-muted"));
     if (!view) {
-      panel.append(element("p", "Carregando configurações…"));
+      panel.append(element("p", status ? "Falha ao carregar. Verifique se a extensão está habilitada e tente novamente." : "Carregando configurações…"));
+      const retry = element("button", "Recarregar");
+      retry.addEventListener("click", () => request());
+      panel.append(retry);
       return;
     }
     if (!view.supported)
@@ -173,11 +191,22 @@ function setup(ctx) {
     let modelValue = view.state.settings.model;
     const mountModel = () => {
       modelMounts.get(root)?.destroy();
+      modelMounts.delete(root);
       modelSlot.replaceChildren();
-      const handle = ctx.components.mountModelCombobox(modelSlot, { value: modelValue, ...connection.value ? { connection: { kind: "llm", id: connection.value } } : { models: [] }, appearance: "standard", placeholder: "Selecione ou digite o ID exato do modelo", emptyMessage: "Sem modelos disponíveis; digite um ID válido.", loadingMessage: "Carregando modelos…", disabled: !connection.value, onChange: (value) => {
-        modelValue = value;
-      } });
-      modelMounts.set(root, handle);
+      try {
+        const handle = ctx.components.mountModelCombobox(modelSlot, { value: modelValue, ...connection.value ? { connection: { kind: "llm", id: connection.value } } : { models: [] }, appearance: "standard", placeholder: "Selecione ou digite o ID exato do modelo", emptyMessage: "Sem modelos disponíveis; digite um ID válido.", loadingMessage: "Carregando modelos…", disabled: !connection.value, onChange: (value) => {
+          modelValue = value;
+        } });
+        modelMounts.set(root, handle);
+      } catch {
+        const input = element("input");
+        input.type = "text";
+        input.value = modelValue;
+        input.placeholder = "ID exato do modelo";
+        input.disabled = !connection.value;
+        input.addEventListener("input", () => { modelValue = input.value; });
+        modelSlot.append(input);
+      }
     };
     mountModel();
     connection.addEventListener("change", () => {
@@ -264,7 +293,7 @@ function setup(ctx) {
     panel.append(element("p", "Os dados e o total natural continuam visíveis. O resultado escolhido prevalece, marcado como CHEAT no histórico e no prompt. Regenerar uma resposta mantém o teste já feito.", "rpg-muted"));
     const log = element("div", "", "rpg-log");
     log.setAttribute("aria-label", "Histórico de rolagens");
-    const rolls = view.ledger.records.filter((a) => a.roll).toReversed();
+    const rolls = view.ledger.records.filter((a) => a.roll).reverse();
     if (!rolls.length)
       log.append(element("p", "Ainda não há rolagens neste chat."));
     for (const a of rolls)
@@ -287,14 +316,16 @@ function setup(ctx) {
   }
   diceButton.addEventListener("click", openHistory);
   const clamp = () => {
+    if (!float) return;
     const p = clampPosition(float.getPosition(), window.innerWidth, window.innerHeight);
     float.moveTo(p.x, p.y);
   };
-  const dragOff = float.onDragEnd((p) => {
+  const dragOff = float?.onDragEnd((p) => {
+    if (!float) return;
     const position = clampPosition(p, window.innerWidth, window.innerHeight);
     float.moveTo(position.x, position.y);
     ctx.sendToBackend({ type: "position", position });
-  });
+  }) ?? (() => {});
   window.addEventListener("resize", clamp);
   const unsub = ctx.onBackendMessage((raw) => {
     if (disposed || !raw || typeof raw !== "object")
@@ -318,7 +349,7 @@ function setup(ctx) {
       if (!positioned) {
         positioned = true;
         if (view.state.position)
-          float.moveTo(view.state.position.x, view.state.position.y);
+          float?.moveTo(view.state.position.x, view.state.position.y);
         clamp();
       }
       render();
@@ -346,7 +377,7 @@ function setup(ctx) {
     for (const handle of modelMounts.values())
       handle.destroy();
     modelMounts.clear();
-    float.destroy();
+    float?.destroy();
     settingsTab?.destroy();
     drawer.destroy();
     removeStyle();
