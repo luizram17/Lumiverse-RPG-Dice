@@ -1,6 +1,7 @@
 /** Opt-in real Lumiverse 1.2.5 runtime/SQLite/installer/provider integration. No real user data. */
 import { resolve, join } from 'node:path';
 import { mkdirSync } from 'node:fs';
+import { defaultPromptTexts } from '../src/prompts';
 const root = resolve(import.meta.dir, '..');
 const source = process.env.LUMIVERSE_SOURCE || join(root, 'scratch', 'Lumiverse');
 const data = join(root, 'scratch', `host-fixture-${Date.now()}`); mkdirSync(data, { recursive:true });
@@ -47,26 +48,34 @@ const report:any={dataDir:data,lumiverseSource:source,install:process.env.RPG_DI
 try{
  await host.start();await rpc({type:'save',settings:{enabled:true,connectionId:aux.id,model:'aux-model'}});
  for(const provider of ['openai','anthropic']){
+  const custom={...defaultPromptTexts(),refereeSystem:`HOST_EDIT_${provider}\n${defaultPromptTexts().refereeSystem}`,mainOpening:`HOST_NOTE_${provider} character `,mainClosing:' Respect OOC; keep the recorded result. HOST_END.'};
+  await rpc({type:'save',prompts:custom});
   const main=await connections.createConnection(user,{name:`Principal ${provider}`,provider,model:'main-model',api_url:base,api_key:'fixture-main-key',is_default:true});
   const chat=chats.createChat(user,{character_id:character.id,name:`Chat ${provider}`,metadata:{no_preset:true}});const action=chats.createMessage(chat.id,{is_user:true,name:persona.name,content:'Tento abrir o cofre com raciocínio e ferramentas.'},user);
   await rpc({type:'cheat',chatId:chat.id,outcome:'Sucesso Crítico'});
   const before=captures.length;const result=await generate.startGeneration({userId:user,chat_id:chat.id,connection_id:main.id,persona_id:persona.id,preset_id:preset.id,generation_type:'normal',parameters:{_streaming:false}});
   await waitUntil(()=>terminals.some(e=>e.generationId===result.generationId),`geração ${provider}`);const terminal=terminals.find(e=>e.generationId===result.generationId);assert(terminal.kind==='ended',`${provider}: geração falhou ${JSON.stringify(terminal)}`);
   const requests=captures.slice(before);assert(requests.length===2,`${provider}: esperadas 2 chamadas, recebidas ${requests.length}`);assert(requests[0].body.model==='aux-model','Auxiliar deve preceder principal');assert(requests[1].body.model==='main-model','Modelo principal foi alterado');
+  assert(requests[0].body.messages[0].content===custom.refereeSystem,'System auxiliar editado não chegou intacto ao provider');
   const last=requests[1].body.messages.at(-1);const text=typeof last.content==='string'?last.content:last.content.map((p:any)=>p.text||'').join('');assert(last.role==='user','OOC não é user final');assert(text.endsWith('))')&&text.includes('Critical Success')&&text.includes('CHEAT'),'Nota final ausente no request real');
+  assert(text.includes(`((HOST_NOTE_${provider}`)&&text.endsWith('HOST_END.))'),`Textos editados não chegaram à nota principal: ${provider} ${text}`);
   const view=await rpc({type:'load',chatId:chat.id});assert(view.ledger.activeCheat==='Sucesso Crítico','Cheat foi desativado indevidamente');assert(view.ledger.records[0].fudge.requested==='Sucesso Crítico','Audit cheat ausente');assert(!JSON.stringify(view).includes('fixture-only-key'),'Chave vazou para UI');
+  custom.mainClosing=' Updated closing on cached result. REPLAY_NEW.';await rpc({type:'save',prompts:custom});
   const regenBefore=captures.length;const regen=await generate.startGeneration({userId:user,chat_id:chat.id,connection_id:main.id,persona_id:persona.id,preset_id:preset.id,generation_type:'regenerate',parameters:{_streaming:false}});await waitUntil(()=>terminals.some(e=>e.generationId===regen.generationId),'regenerate');assert(captures.length-regenBefore===1,'Regenerate chamou auxiliar/rerolou');
+  assert(JSON.stringify(captures.at(-1).body.messages.at(-1).content).includes('REPLAY_NEW.'),'Replay ignorou texto atualizado');
+  assert(JSON.stringify((await rpc({type:'load',chatId:chat.id})).ledger.records)===JSON.stringify(view.ledger.records),'Editar textos alterou resultado cacheado');
   chats.createMessage(chat.id,{is_user:true,name:persona.name,content:'Tento abrir outro cofre, uma nova ação.'},user);
   const second=await generate.startGeneration({userId:user,chat_id:chat.id,connection_id:main.id,persona_id:persona.id,preset_id:preset.id,generation_type:'normal',parameters:{_streaming:false}});await waitUntil(()=>terminals.some(e=>e.generationId===second.generationId),'segunda ação');
   const secondView=await rpc({type:'load',chatId:chat.id});assert(secondView.ledger.activeCheat==='Sucesso Crítico'&&secondView.ledger.records.length===2&&secondView.ledger.records.every((r:any)=>r.roll.outcome==='Sucesso Crítico'),'Cheat não persistiu por duas ações');
+  const reset=await rpc({type:'save',chatId:chat.id,resetPrompts:true});assert(JSON.stringify(reset.state.prompts)===JSON.stringify(defaultPromptTexts()),'Reset não restaurou padrões');assert(JSON.stringify(reset.ledger)===JSON.stringify(secondView.ledger)&&JSON.stringify(reset.state.settings)===JSON.stringify(secondView.state.settings)&&JSON.stringify(reset.state.personas)===JSON.stringify(secondView.state.personas),'Reset alterou dados fora dos prompts');
   await rpc({type:'cheat',chatId:chat.id,outcome:null});assert((await rpc({type:'load',chatId:chat.id})).ledger.activeCheat===null,'Cheat não desativou manualmente');
   chats.createMessage(chat.id,{is_user:true,name:persona.name,content:'Tento abrir o terceiro cofre.'},user);invalidAux=true;
   const failBefore=captures.length;const failed=await generate.startGeneration({userId:user,chat_id:chat.id,connection_id:main.id,persona_id:persona.id,preset_id:preset.id,generation_type:'normal',parameters:{_streaming:false}});await waitUntil(()=>terminals.some(e=>e.generationId===failed.generationId),'erro auxiliar');const failure=terminals.find(e=>e.generationId===failed.generationId);assert(failure.error&&captures.length-failBefore===1,'Falha auxiliar não bloqueou principal');invalidAux=false;
-  report.cases.push({provider,requests:requests.map(r=>({path:r.path,model:r.body.model,lastRole:r.body.messages.at(-1).role,lastContent:r.body.messages.at(-1).content})),regenerateRequests:1,messageId:action.id,history:secondView.ledger.records.length,persistentCheat:true,manualOff:true,auxFailureBlockedMain:true});
+  report.cases.push({provider,requests:requests.map(r=>({path:r.path,model:r.body.model,lastRole:r.body.messages.at(-1).role,lastContent:r.body.messages.at(-1).content})),editedAuxiliaryExact:true,editedMainNote:true,replayCurrentTextsOriginalResult:true,resetOnlyPrompts:true,regenerateRequests:1,messageId:action.id,history:secondView.ledger.records.length,persistentCheat:true,manualOff:true,auxFailureBlockedMain:true});
  }
  if(process.env.RPG_DICE_INSTALL_URL){await host.stop();const updated=await manager.update('rpg_dice');report.updateVersion=updated.version;}
  report.passed=true;await Bun.write(join(data,'requests.json'),JSON.stringify(captures,null,2));await Bun.write(join(data,'report.json'),JSON.stringify(report,null,2));console.log(JSON.stringify(report,null,2));
-}finally{await host.stop();fixtureServer.stop(true);generate.stopAllGenerations();generate.stopGenerationSweep();(await load('services/generation-pool.service.ts')).stopPoolSweep();closeDatabase();}
+}catch(error){report.passed=false;report.error=String(error);await Bun.write(join(data,'requests.json'),JSON.stringify(captures,null,2));await Bun.write(join(data,'report.json'),JSON.stringify(report,null,2));throw error;}finally{await host.stop();fixtureServer.stop(true);generate.stopAllGenerations();generate.stopGenerationSweep();(await load('services/generation-pool.service.ts')).stopPoolSweep();closeDatabase();}
 process.exit(0);
 
 
