@@ -1,12 +1,12 @@
 {
   "name": "lumiverse-rpg-dice",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "private": true,
   "type": "module",
   "scripts": {
     "build": "bun build src/backend.ts src/frontend.ts --outdir dist --target browser --format esm",
     "typecheck": "tsc --noEmit",
-    "test": "bun test ./tests/rules.test.ts ./tests/engine.test.ts ./tests/frontend.test.ts",
+    "test": "bun test ./tests/rules.test.ts ./tests/engine.test.ts ./tests/frontend.test.ts ./tests/prompts.test.ts",
     "check": "bun run typecheck && bun run test && bun run build",
     "test:host": "bun run tests/host-integration.ts"
   },
