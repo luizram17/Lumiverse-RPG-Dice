@@ -10,7 +10,7 @@ No gerenciador de extensões **Spindle** do Lumiverse, escolha instalar por URL:
 https://github.com/luizram17/Lumiverse-RPG-Dice
 ```
 
-Conceda as permissões solicitadas. O repositório inclui `dist/backend.js` e `dist/frontend.js`; não é necessário compilar para instalar. Para receber a versão **1.0.3**, use a ação de atualização do Spindle e recarregue a página para carregar os arquivos atualizados. Esta versão mantém as correções de carregamento da interface da 1.0.2.
+Conceda as permissões solicitadas. O repositório inclui `dist/backend.js` e `dist/frontend.js`; não é necessário compilar para instalar. Para receber a versão **1.0.4**, use a ação de atualização do Spindle e recarregue a página para carregar os arquivos atualizados. Esta versão acrescenta efeitos narrativos editáveis para os quatro resultados e mantém as correções de carregamento da interface da 1.0.2.
 
 Compatibilidade conferida com **Lumiverse 1.2.5**, fonte `b1a68d9e32e2a2480a0d5ae71422566845f2657b`, e SDK `lumiverse-spindle-types` 0.6.40. O host precisa anunciar `required-interceptors-v1 >= 1`; versões sem esse recurso não podem habilitar os testes. Os runtimes de backend e as permissões são os fornecidos pelo Lumiverse.
 
@@ -27,16 +27,17 @@ O dado **⚄** fica com opacidade de 60% em repouso e se destaca ao passar o mou
 
 ### Editar os textos dos modelos
 
-Na mesma aba de configurações, expanda **Editar textos enviados aos modelos**. Há nove campos de texto:
+Na mesma aba de configurações, expanda **Editar textos enviados aos modelos**. Há treze campos de texto:
 
 - **Árbitro auxiliar:** o `system` completo, incluindo papel, diretrizes, instruções de OOC e formato JSON esperado. Esse campo contém o texto system integral enviado ao auxiliar.
 - **Principal:** oito trechos fixos, na ordem da nota: abertura antes da persona, separador antes da abordagem, texto antes da ação, antes da categoria, antes do efeito, depois do efeito, instrução condicional de CHEAT e encerramento/diretrizes OOC. Os separadores também podem ser editados.
+- **Efeitos:** quatro descrições independentes para Falha, Sucesso Parcial, Sucesso e Sucesso Crítico. O principal recebe o efeito da categoria obtida pelo código, inclusive quando há CHEAT. Essas descrições não são enviadas ao árbitro auxiliar.
 
-Clique em **Salvar textos dos modelos**. Os textos ficam salvos por conta, para todos os chats dessa conta. Os padrões são em inglês e podem ser substituídos por textos no idioma que você preferir. Espaços, quebras de linha e campos vazios são preservados. O limite é de 24.000 caracteres para o auxiliar e 4.000 para cada trecho do principal. A interface trata o conteúdo como texto; não executa HTML, código ou templates.
+Clique em **Salvar textos dos modelos**. Os textos ficam salvos por conta, para todos os chats dessa conta. Os padrões são em inglês e podem ser substituídos por textos no idioma que você preferir. Espaços, quebras de linha e campos vazios são preservados. O limite é de 24.000 caracteres para o auxiliar e 4.000 para cada trecho do principal ou efeito. A interface trata o conteúdo como texto; não executa HTML, código ou templates.
 
-Os campos tracejados e a prévia são **somente leitura** e usam valores de exemplo. A prévia não chama modelos nem sorteia dados. O código sempre insere persona, abordagem, ação, categoria e efeito nos locais indicados, mesmo que todos os textos fixos sejam apagados. O envelope `((...))`, a estrutura JSON do contexto e seus valores, os identificadores de abordagens e os mapas de categoria/efeito pertencem ao código. Dados, totais, ficha, DT, bônus e cheats também não podem ser alterados pelo editor de textos. O trecho de CHEAT só é incluído quando o teste registrado possui CHEAT.
+Os campos tracejados e a prévia são **somente leitura** e usam valores de exemplo. O seletor **Resultado da prévia — somente exemplo** permite conferir cada efeito ao editar; não salva resultado, não chama modelos, não sorteia dados e não altera cheats. O código sempre insere persona, abordagem, ação e categoria nos locais indicados, mesmo que todos os textos fixos sejam apagados; o efeito vem do campo editável da categoria obtida e pode ficar vazio. O envelope `((...))`, a estrutura JSON do contexto e seus valores, os identificadores de abordagens, as categorias e sua classificação por margem pertencem ao código. Dados, totais, ficha, DT, bônus e cheats também não podem ser alterados pelo editor de textos. O trecho de CHEAT só é incluído quando o teste registrado possui CHEAT.
 
-O texto do auxiliar é usado em **novas ações**. Alterá-lo não refaz decisões ou rolagens já salvas. Ao regenerar ou continuar uma ação em cache, o código mantém o resultado antigo e monta somente a nota principal com os textos atuais. **Restaurar e salvar textos padrão** grava os padrões apenas desses nove campos: preserva conexões, fichas, posição, histórico, resultados e cheats. Contas que já usavam a extensão recebem os padrões automaticamente sem migração destrutiva.
+O texto do auxiliar é usado em **novas ações**. Alterá-lo não refaz decisões ou rolagens já salvas. Ao regenerar ou continuar uma ação em cache, o código mantém o resultado antigo e monta somente a nota principal com os textos e o efeito atuais. O histórico exibe **Efeito (texto atual)** conforme os textos salvos; editar o efeito não regrava a auditoria nem o significado original guardado no registro. Rascunhos afetam apenas a prévia até salvar. **Restaurar e salvar textos padrão** grava os padrões apenas desses treze campos: preserva conexões, fichas, posição, histórico, resultados e cheats. Contas que já usavam a extensão mantêm todos os nove textos personalizados anteriores e recebem os quatro efeitos padrão sem migração destrutiva.
 
 A validação continua independente do texto editado: o auxiliar precisa retornar `roll` booleano e `reason` com 1–600 caracteres; se houver teste, deve retornar abordagem válida, DT inteira de −2 a 8, bônus inteiro de 0 a 4 e `action` com 1–400 caracteres. Um prompt editado que não produza esse contrato interrompe o turno, sem inventar resultado. A precedência de comandos OOC reconhecidos pelo código, o sorteio e a classificação continuam definidos pelas regras da extensão; as instruções narrativas editadas orientam os modelos.
 
@@ -50,7 +51,7 @@ O código continua sorteando os quatro dados normalmente e mostra o total natura
 
 O teste é `4dF + abordagem salva + bônus contextual` contra a DT definida antes do sorteio. Cada dado vale −1, 0 ou +1. A fonte é `crypto.getRandomValues`; rejeitar o byte 255 evita viés de módulo.
 
-| Comparação | Resultado | Efeito na narrativa |
+| Comparação | Resultado | Efeito padrão na narrativa (editável) |
 |---|---|---|
 | Total abaixo da DT | Falha | O objetivo não é atingido. |
 | Total igual à DT | Sucesso Parcial | O objetivo é parcialmente atingido, sem custo obrigatório. |
@@ -69,7 +70,7 @@ O auxiliar recebe seu papel, a descrição da persona, a ficha salva, o históri
 
 O interceptor obrigatório suspende o modelo principal. Faz **uma chamada auxiliar**, valida a decisão, sorteia no código e persiste o registro. Só então acrescenta uma nota OOC curta como última mensagem `user` do prompt montado, depois do histórico e dos blocos do preset. Não há chamada auxiliar depois do sorteio. O modelo principal recebe o resultado e seu significado e é instruído a não refazer nem reclassificar o teste. A nota aparece no **Prompt Breakdown** como RPG Dice.
 
-As instruções **padrão** para a IA auxiliar e para o narrador estão em **inglês** e podem ser editadas nas configurações. O padrão orienta o auxiliar a escrever `action` e `reason` em inglês. A nota final usa abordagens, resultados e significados em inglês, inclusive ao reutilizar registros antigos. A interface e os identificadores de fichas/resultados salvos permanecem em português. Nomes, descrições, histórico, OOC e ações originais são preservados no idioma em que foram fornecidos; textos de decisões antigas também são preservados.
+As instruções e os efeitos **padrão** para a IA auxiliar e para o narrador estão em **inglês** e podem ser editados nas configurações. O padrão orienta o auxiliar a escrever `action` e `reason` em inglês. A nota final usa abordagens e categorias em inglês; o efeito usa o texto atual configurado, inclusive ao reutilizar registros antigos. A interface e os identificadores de fichas/resultados salvos permanecem em português. Nomes, descrições, histórico, OOC e ações originais são preservados no idioma em que foram fornecidos; textos de decisões antigas também são preservados.
 
 O histórico e o resultado são salvos por usuário e chat. A chave de uma ação inclui chat, persona, ID da mensagem e seu texto. A mesma ação reutiliza sua decisão em regenerações, continuações, swipes e reenvios, mesmo após trocar ficha, modelo ou cheat. Editar o texto cria uma nova ação no envio normal. Regenerar/continuar sem uma decisão anterior não cria um teste retroativo. Rascunhos de prompt (`dry run`), impersonação e gerações quietas não rolam. Um ramo criado como novo chat tem armazenamento próprio.
 
@@ -94,7 +95,7 @@ bun install --frozen-lockfile
 bun run check
 ```
 
-`check` executa TypeScript, os testes da extensão e compila `dist`. Há testes de regras, parser/limites, OOC, contexto, ficha, isolamento, cache, falhas/cancelamento, cheats persistentes e interface. Os testes de textos cobrem defaults legados, salvar/recarregar/reset por conta, limites, uso do texto editado no request auxiliar e na nota principal, slots protegidos, prévia sem execução e replay com resultado antigo. A integração DOM verifica os editores, rascunhos e os fallbacks da interface. O teste do runtime real usa um clone separado do Lumiverse e dados fictícios:
+`check` executa TypeScript, os testes da extensão e compila `dist`. Há testes de regras, parser/limites, OOC, contexto, ficha, isolamento, cache, falhas/cancelamento, cheats persistentes e interface. Os testes de textos cobrem defaults legados, preservação dos nove textos antigos, salvar/recarregar/reset por conta, limites, uso do texto editado no request auxiliar e na nota principal, quatro efeitos em resultados naturais/CHEAT, slots protegidos e replay com efeito atual sem rerrolar nem regravar o registro. A integração DOM verifica os treze editores, seletor de prévia sem execução, histórico com efeito salvo, rascunhos e os fallbacks da interface. A validação da 1.0.4 usa `check`; o canal de integração do host permanece o da 1.0.3. O teste do runtime real usa um clone separado do Lumiverse e dados fictícios:
 
 ```powershell
 git clone --depth 1 https://github.com/prolix-oc/Lumiverse.git scratch/Lumiverse
