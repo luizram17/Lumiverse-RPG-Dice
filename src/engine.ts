@@ -1,11 +1,12 @@
 import type { SpindleAPI, InterceptorContextDTO, LlmMessageDTO, PersonaDTO } from 'lumiverse-spindle-types';
-import { defaultScores, fateDice, forcedOoc, forceOutcome, modelApproaches, outcomes, oocParts, parseDecision, resolveRoll, validateScores, type Decision, type Roll, type Scores, type Fudge, type Outcome } from './rules';
+import { defaultSheet, d10Dice, forcedOoc, forceOutcome, outcomes, oocParts, parseDecision, resolveRoll, selectSkill, validateSheet, type Decision, type Roll, type PersonaSheet, type Fudge, type Outcome } from './rules';
 import { defaultPromptTexts, mainNote, promptTexts, validatePromptTexts, type PromptTexts } from './prompts';
 export interface Settings { enabled: boolean; connectionId: string; model: string }
 export interface Audit { key: string; chatId: string; personaId: string; personaName: string; messageId: string; actionText: string; timestamp: string; decision: Decision; roll?: Roll; fudge?: Fudge; connectionId: string; model: string }
-export interface State { version: 1; settings: Settings; personas: Record<string, Scores>; prompts?: PromptTexts; position?: { x: number; y: number } }
+export interface State { version: 2; settings: Settings; personas: Record<string, PersonaSheet>; prompts?: PromptTexts; position?: { x: number; y: number }; legacyPersonas?: Record<string, unknown> }
+interface LegacyState { version: 1; settings: Settings; personas: Record<string, unknown>; prompts?: Partial<PromptTexts>; position?: { x: number; y: number } }
 export interface Ledger { version: 1; activeCheat: Outcome | null; records: Audit[] }
-const initial = (): State => ({ version: 1, settings: { enabled: false, connectionId: '', model: '' }, personas: {} });
+const initial = (): State => ({ version: 2, settings: { enabled: false, connectionId: '', model: '' }, personas: {} });
 type ChatMessage = Awaited<ReturnType<SpindleAPI['chat']['getMessages']>>[number];
 export function selectHistory(all: ChatMessage[], prompt: LlmMessageDTO[], context: Pick<InterceptorContextDTO, 'excludeMessageId' | 'generationType'>): { history: ChatMessage[]; latest?: ChatMessage } {
   const sorted = [...all].sort((a, b) => a.index_in_chat - b.index_in_chat);
@@ -24,26 +25,40 @@ export function selectHistory(all: ChatMessage[], prompt: LlmMessageDTO[], conte
 }
 async function digest(text: string): Promise<string> { return Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text)))).map(b => b.toString(16).padStart(2, '0')).join(''); }
 function cleanInline(text: string): string { return text.replace(/[\r\n]+/g, ' ').replace(/\(\(|\)\)/g, '').slice(0, 160); }
+export function rollLabel(audit: Audit): string {
+  if (audit.roll?.ruleset !== '2d10') { const legacy: Record<string, string> = { Cuidadoso: 'Careful', Astuto: 'Clever', Chamativo: 'Flashy', Enérgico: 'Forceful', Ágil: 'Quick', Furtivo: 'Sneaky' }; return legacy[audit.decision.approach || ''] || audit.decision.approach || ''; }
+  const r = audit.roll; const signed = (n: number) => n >= 0 ? `+${n}` : String(n);
+  return `${audit.decision.attribute} ${signed(r.attribute)}${r.skill ? `; ${cleanInline(r.skill.name)} ${signed(r.skill.appliedBonus)} (×${r.skill.relevance === 'full' ? 1 : 0.5})` : ''}`;
+}
 export function inject(messages: LlmMessageDTO[], audit: Audit, texts = defaultPromptTexts()) {
   if (!audit.roll) return { messages };
   const r = audit.roll;
-  const note = mainNote(texts, { persona: cleanInline(audit.personaName), approach: modelApproaches[audit.decision.approach!], action: cleanInline(audit.decision.action || ''), outcome: r.outcome as Outcome, cheat: Boolean(audit.fudge) });
+  const note = mainNote(texts, { persona: cleanInline(audit.personaName), attribute: rollLabel(audit), action: cleanInline(audit.decision.action || ''), outcome: r.outcome as Outcome, cheat: Boolean(audit.fudge) });
   return { messages: [...messages, { role: 'user' as const, content: note }], breakdown: [{ messageIndex: messages.length, name: 'RPG Dice — resultado automático' }] };
 }
 export class DiceEngine {
   private locks = new Map<string, Promise<unknown>>();
-  constructor(private api: SpindleAPI, private random = fateDice) {}
+  constructor(private api: SpindleAPI, private random = d10Dice) {}
   supported(): boolean { return (this.api.host.capabilities['required-interceptors-v1'] || 0) >= 1; }
   private async readJson<T>(userId: string, path: string, fallback: T): Promise<T> { if (!await this.api.userStorage.exists(path, userId)) return fallback; return JSON.parse(await this.api.userStorage.read(path, userId)) as T; }
   private async atomicJson(userId: string, path: string, value: unknown) { const temp = `${path}.pending`; await this.api.userStorage.write(temp, JSON.stringify(value), userId); await this.api.userStorage.move(temp, path, userId); }
-  async load(userId: string): Promise<State> { const state = await this.readJson(userId, 'state.json', initial()); return { ...state, prompts: promptTexts(state.prompts) }; }
+  async load(userId: string): Promise<State> {
+    const state = await this.readJson<State | LegacyState>(userId, 'state.json', initial());
+    if (state.version === 2) return { ...state, prompts: promptTexts(state.prompts) };
+    if (state.version !== 1) throw Error('Versão de ficha RPG Dice desconhecida; nenhum dado foi alterado.');
+    const prompts = promptTexts(state.prompts);
+    // Only the exact shipped 1.x system is replaced. Authored prompts remain intact;
+    // the new editable contract below them explicitly supersedes old mechanics.
+    if (await digest(prompts.refereeSystem) === '5e1e9caeee7d142a27dff3ddf05b4d045e72709c91592348b2f442d84cb42c05') prompts.refereeSystem = defaultPromptTexts().refereeSystem;
+    return { ...state, version: 2, personas: Object.fromEntries(Object.keys(state.personas).map(id => [id, defaultSheet()])), legacyPersonas: state.personas, prompts };
+  }
   async save(userId: string, state: State) { await this.atomicJson(userId, 'state.json', state); }
   private async ledgerPath(chatId: string) { return `chats/${await digest(chatId)}.json`; }
   async ledger(userId: string, chatId: string): Promise<Ledger> { return this.readJson(userId, await this.ledgerPath(chatId), { version: 1 as const, activeCheat: null, records: [] }); }
   async setCheat(userId: string, chatId: string, outcome: unknown) { return this.locked(`user:${userId}`, async () => { if (!await this.api.chats.get(chatId, userId)) throw Error('Chat não encontrado.'); if (outcome !== null && !outcomes.includes(outcome as Outcome)) throw Error('Resultado inválido.'); const ledger = await this.ledger(userId, chatId); ledger.activeCheat = outcome as Outcome | null; await this.atomicJson(userId, await this.ledgerPath(chatId), ledger); }); }
   async position(userId: string, value: unknown) { const p = value as { x: number; y: number }; if (!p || !Number.isFinite(p.x) || !Number.isFinite(p.y)) throw Error('Posição inválida.'); await this.locked(`user:${userId}`, async () => { const state = await this.load(userId); state.position = { x: Math.max(0, p.x), y: Math.max(0, p.y) }; await this.save(userId, state); }); }
   private async locked<T>(key: string, fn: () => Promise<T>): Promise<T> { const prev = this.locks.get(key) || Promise.resolve(); const next = prev.catch(() => {}).then(fn); this.locks.set(key, next); try { return await next; } finally { if (this.locks.get(key) === next) this.locks.delete(key); } }
-  async configure(userId: string, payload: { settings?: Settings; personaId?: string; scores?: unknown; prompts?: unknown; resetPrompts?: unknown }) {
+  async configure(userId: string, payload: { settings?: Settings; personaId?: string; sheet?: unknown; prompts?: unknown; resetPrompts?: unknown }) {
     return this.locked(`user:${userId}`, async () => {
       const state = await this.load(userId);
       if (payload.resetPrompts !== undefined && payload.resetPrompts !== true) throw Error('Restauração de prompts inválida.');
@@ -51,7 +66,7 @@ export class DiceEngine {
       if (payload.prompts !== undefined) state.prompts = validatePromptTexts(payload.prompts);
       if (payload.resetPrompts) state.prompts = defaultPromptTexts();
       if (payload.settings) { const s = payload.settings; if (typeof s.enabled !== 'boolean' || typeof s.connectionId !== 'string' || typeof s.model !== 'string' || s.model.length > 200) throw Error('Configuração inválida.'); if (s.enabled) { if (!this.supported()) throw Error('Lumiverse incompatível: faltam interceptores obrigatórios.'); if (!s.connectionId || !s.model.trim() || !await this.api.connections.get(s.connectionId, userId)) throw Error('Selecione um perfil válido e informe o modelo auxiliar.'); } state.settings = { enabled: s.enabled, connectionId: s.connectionId, model: s.model.trim() }; }
-      if (payload.personaId) { if (!await this.api.personas.get(payload.personaId, userId)) throw Error('Persona não encontrada.'); state.personas[payload.personaId] = validateScores(payload.scores); }
+      if (payload.personaId) { if (!await this.api.personas.get(payload.personaId, userId)) throw Error('Persona não encontrada.'); state.personas[payload.personaId] = validateSheet(payload.sheet); }
       await this.save(userId, state); return state;
     });
   }
@@ -82,14 +97,14 @@ export class DiceEngine {
         if (cached) { context.signal.throwIfAborted(); return inject(messages, cached, state.prompts); }
         // A continuation/regeneration never creates a new chance for an old action.
         if (context.generationType !== 'normal') return { messages };
-        const scores = state.personas[persona.id] || defaultScores();
-        if (!state.personas[persona.id]) { state.personas[persona.id] = scores; await this.save(userId, state); }
+        const sheet = validateSheet(state.personas[persona.id] || defaultSheet());
+        if (!state.personas[persona.id]) { state.personas[persona.id] = sheet; await this.save(userId, state); }
         let decision: Decision;
         if (forcedOoc(latest.content)) decision = { roll: false, reason: 'OOC prioritário determina o resultado ou dispensa o teste.' };
-        else decision = await this.ask(state.settings, state.prompts!, persona, history, latest, scores, context);
+        else decision = await this.ask(state.settings, state.prompts!, persona, history, latest, sheet, context);
         context.signal.throwIfAborted();
         const audit: Audit = { key, chatId: context.chatId, personaId: persona.id, personaName: persona.name, messageId: latest.id, actionText: latest.content, timestamp: new Date().toISOString(), decision, connectionId: state.settings.connectionId, model: state.settings.model };
-        if (decision.roll) { const attribute = validateScores(scores)[decision.approach!]; const natural = resolveRoll(this.random(), attribute, decision.bonus!, decision.difficulty!); if (ledger.activeCheat) { const result = forceOutcome(natural, ledger.activeCheat); audit.roll = result.roll; audit.fudge = result.fudge; } else audit.roll = natural; }
+        if (decision.roll) { const attribute = sheet.attributes[decision.attribute!]; const skill = selectSkill(sheet, decision.skillCandidates!); const natural = resolveRoll(this.random(), attribute, skill, decision.difficulty!); if (ledger.activeCheat) { const result = forceOutcome(natural, ledger.activeCheat); audit.roll = result.roll; audit.fudge = result.fudge; } else audit.roll = natural; }
         context.signal.throwIfAborted();
         // Persist the result BEFORE returning any prompt to the main model.
         ledger.records.push(audit);
@@ -103,14 +118,14 @@ export class DiceEngine {
       }
     });
   }
-  private async ask(settings: Settings, texts: PromptTexts, persona: PersonaDTO, history: ChatMessage[], latest: ChatMessage, scores: Scores, context: InterceptorContextDTO): Promise<Decision> {
+  private async ask(settings: Settings, texts: PromptTexts, persona: PersonaDTO, history: ChatMessage[], latest: ChatMessage, sheet: PersonaSheet, context: InterceptorContextDTO): Promise<Decision> {
     if (!settings.connectionId || !settings.model || !await this.api.connections.get(settings.connectionId, context.userId)) throw Error('Perfil auxiliar removido ou não configurado.');
     const controller = new AbortController(); const abort = () => controller.abort(context.signal.reason); context.signal.addEventListener('abort', abort, { once: true }); if (context.signal.aborted) abort();
     const timer = setTimeout(() => controller.abort(Error('Tempo limite da análise auxiliar (110 s).')), 110000);
     try {
-      const contextData = { persona: { id: persona.id, name: persona.name, title: persona.title, description: persona.description }, savedApproaches: scores, history: history.map(m => ({ id: m.id, role: m.role, name: m.name, content: m.content })), latestAction: { messageId: latest.id, personaId: persona.id, text: latest.content, ooc: oocParts(latest.content) } };
+      const contextData = { persona: { id: persona.id, name: persona.name, title: persona.title, description: persona.description }, attributes: sheet.attributes, skills: sheet.skills, history: history.map(m => ({ id: m.id, role: m.role, name: m.name, content: m.content })), latestAction: { messageId: latest.id, personaId: persona.id, text: latest.content, ooc: oocParts(latest.content) } };
       // SDK 0.6.40 omits raw provider/model from its DTO; both are implemented by the pinned host worker and direct-generation service.
-      const request = { type: 'raw' as const, provider: '', model: settings.model, connection_id: settings.connectionId, userId: context.userId, messages: [{ role: 'system' as const, content: texts.refereeSystem }, { role: 'user' as const, content: JSON.stringify(contextData) }], parameters: { temperature: 0, max_tokens: 1800 }, signal: controller.signal };
+      const request = { type: 'raw' as const, provider: '', model: settings.model, connection_id: settings.connectionId, userId: context.userId, messages: [{ role: 'system' as const, content: `${texts.refereeSystem}\n\n${texts.refereeContract}` }, { role: 'user' as const, content: JSON.stringify(contextData) }], parameters: { temperature: 0, max_tokens: Math.max(1800, JSON.stringify(sheet.skills.map(s => s.id)).length + sheet.skills.length * 24 + 1024) }, signal: controller.signal };
       const result = await this.api.generate.raw(request) as { content?: unknown };
       controller.signal.throwIfAborted(); if (typeof result?.content !== 'string') throw Error('Resposta auxiliar sem conteúdo.'); return parseDecision(result.content);
     } finally { clearTimeout(timer); context.signal.removeEventListener('abort', abort); }

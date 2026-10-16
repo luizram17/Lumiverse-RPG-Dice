@@ -1,10 +1,11 @@
-import { modelOutcomes, refereePrompt, type Outcome } from './rules';
+import { modelOutcomes, refereePrompt, refereeContract, type Outcome } from './rules';
 
 // Prose only. Context JSON, response validation and roll values belong to code.
 export const promptFields = [
-  { key: 'refereeSystem', label: 'Árbitro auxiliar — papel, diretrizes e formato JSON', limit: 24000 },
+  { key: 'refereeSystem', label: 'Árbitro auxiliar — papel e diretrizes OOC', limit: 24000 },
+  { key: 'refereeContract', label: 'Árbitro auxiliar — regras 2d10 e contrato JSON', limit: 24000 },
   { key: 'mainOpening', label: 'Principal — antes do nome da persona', limit: 4000 },
-  { key: 'mainBeforeApproach', label: 'Principal — entre persona e abordagem', limit: 4000 },
+  { key: 'mainBeforeApproach', label: 'Principal — entre persona e atributo/skill', limit: 4000 },
   { key: 'mainBeforeAction', label: 'Principal — antes da ação', limit: 4000 },
   { key: 'mainBeforeResult', label: 'Principal — antes da categoria do resultado', limit: 4000 },
   { key: 'mainBeforeMeaning', label: 'Principal — antes do efeito do resultado', limit: 4000 },
@@ -20,6 +21,7 @@ export type PromptKey = typeof promptFields[number]['key'];
 export type PromptTexts = Record<PromptKey, string>;
 export const defaultPromptTexts = (): PromptTexts => ({
   refereeSystem: refereePrompt,
+  refereeContract,
   mainOpening: 'An automatic skill check was completed for character ',
   mainBeforeApproach: ' (',
   mainBeforeAction: '). Action: ',
@@ -61,10 +63,10 @@ export function outcomeEffect(text: PromptTexts, outcome: Outcome): string {
   if (!key) throw Error('Categoria de resultado inválida.');
   return text[key];
 }
-export interface MainValues { persona: string; approach: string; action: string; outcome: Outcome; cheat: boolean }
+export interface MainValues { persona: string; attribute: string; action: string; outcome: Outcome; cheat: boolean }
 export function mainNote(text: PromptTexts, value: MainValues): string {
   // No template interpolation/evaluation: all dynamic slots are always inserted by code.
   const meaning = outcomeEffect(text, value.outcome);
-  return `((${text.mainOpening}${value.persona}${text.mainBeforeApproach}${value.approach}${text.mainBeforeAction}${value.action}${text.mainBeforeResult}${modelOutcomes[value.outcome].label}${text.mainBeforeMeaning}${meaning}${text.mainAfterMeaning}${value.cheat ? text.mainCheat : ''}${text.mainClosing}))`;
+  return `((${text.mainOpening}${value.persona}${text.mainBeforeApproach}${value.attribute}${text.mainBeforeAction}${value.action}${text.mainBeforeResult}${modelOutcomes[value.outcome].label}${text.mainBeforeMeaning}${meaning}${text.mainAfterMeaning}${value.cheat ? text.mainCheat : ''}${text.mainClosing}))`;
 }
-export const previewValues: MainValues = { persona: 'Alice', approach: 'Clever', action: 'open the safe', outcome: 'Sucesso Crítico', cheat: true };
+export const previewValues: MainValues = { persona: 'Alice', attribute: 'INTELLIGENCE +2; Carpentry +1.5 (×0.5)', action: 'open the safe', outcome: 'Sucesso Crítico', cheat: true };
