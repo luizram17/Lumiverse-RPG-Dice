@@ -1,11 +1,11 @@
 {
-  "version": "1.0.4",
+  "version": "2.0.0",
   "name": "RPG Dice",
   "identifier": "rpg_dice",
   "author": "luizram17",
   "github": "https://github.com/luizram17/Lumiverse-RPG-Dice",
   "homepage": "https://github.com/luizram17/Lumiverse-RPG-Dice",
-  "description": "Testes Fate Accelerated automáticos para a persona, com árbitro auxiliar, dado flutuante, histórico e cheats explícitos.",
+  "description": "Testes 2d10 automáticos, seis atributos e skills por persona, árbitro auxiliar, dado flutuante, histórico e cheats persistentes.",
   "permissions": [
     "generation",
     "interceptor",
