@@ -1,5 +1,5 @@
 import type { SpindleAPI, InterceptorContextDTO, LlmMessageDTO, PersonaDTO } from 'lumiverse-spindle-types';
-import { defaultScores, fateDice, forcedOoc, forceOutcome, modelApproaches, modelOutcomes, outcomes, oocParts, parseDecision, resolveRoll, validateScores, type Decision, type Roll, type Scores, type Fudge, type Outcome } from './rules';
+import { defaultScores, fateDice, forcedOoc, forceOutcome, modelApproaches, outcomes, oocParts, parseDecision, resolveRoll, validateScores, type Decision, type Roll, type Scores, type Fudge, type Outcome } from './rules';
 import { defaultPromptTexts, mainNote, promptTexts, validatePromptTexts, type PromptTexts } from './prompts';
 export interface Settings { enabled: boolean; connectionId: string; model: string }
 export interface Audit { key: string; chatId: string; personaId: string; personaName: string; messageId: string; actionText: string; timestamp: string; decision: Decision; roll?: Roll; fudge?: Fudge; connectionId: string; model: string }
@@ -27,8 +27,7 @@ function cleanInline(text: string): string { return text.replace(/[\r\n]+/g, ' '
 export function inject(messages: LlmMessageDTO[], audit: Audit, texts = defaultPromptTexts()) {
   if (!audit.roll) return { messages };
   const r = audit.roll;
-  const outcome = modelOutcomes[r.outcome as Outcome];
-  const note = mainNote(texts, { persona: cleanInline(audit.personaName), approach: modelApproaches[audit.decision.approach!], action: cleanInline(audit.decision.action || ''), outcome: outcome.label, meaning: outcome.meaning, cheat: Boolean(audit.fudge) });
+  const note = mainNote(texts, { persona: cleanInline(audit.personaName), approach: modelApproaches[audit.decision.approach!], action: cleanInline(audit.decision.action || ''), outcome: r.outcome as Outcome, cheat: Boolean(audit.fudge) });
   return { messages: [...messages, { role: 'user' as const, content: note }], breakdown: [{ messageIndex: messages.length, name: 'RPG Dice — resultado automático' }] };
 }
 export class DiceEngine {

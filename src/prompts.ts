@@ -1,4 +1,4 @@
-import { refereePrompt } from './rules';
+import { modelOutcomes, refereePrompt, type Outcome } from './rules';
 
 // Prose only. Context JSON, response validation and roll values belong to code.
 export const promptFields = [
@@ -11,6 +11,10 @@ export const promptFields = [
   { key: 'mainAfterMeaning', label: 'Principal — depois do efeito', limit: 4000 },
   { key: 'mainCheat', label: 'Principal — instrução adicional quando há CHEAT', limit: 4000 },
   { key: 'mainClosing', label: 'Principal — encerramento e diretrizes OOC', limit: 4000 },
+  { key: 'effectFailure', label: 'Efeito de Falha — texto para o principal', limit: 4000 },
+  { key: 'effectPartialSuccess', label: 'Efeito de Sucesso Parcial — texto para o principal', limit: 4000 },
+  { key: 'effectSuccess', label: 'Efeito de Sucesso — texto para o principal', limit: 4000 },
+  { key: 'effectCriticalSuccess', label: 'Efeito de Sucesso Crítico — texto para o principal', limit: 4000 },
 ] as const;
 export type PromptKey = typeof promptFields[number]['key'];
 export type PromptTexts = Record<PromptKey, string>;
@@ -24,6 +28,10 @@ export const defaultPromptTexts = (): PromptTexts => ({
   mainAfterMeaning: '.',
   mainCheat: ' Authorized CHEAT: this OOC-guaranteed outcome overrides the numerical comparison.',
   mainClosing: ' Respect all OOC instructions; do not reroll or reclassify this check.',
+  effectFailure: modelOutcomes.Falha.meaning,
+  effectPartialSuccess: modelOutcomes['Sucesso Parcial'].meaning,
+  effectSuccess: modelOutcomes.Sucesso.meaning,
+  effectCriticalSuccess: modelOutcomes['Sucesso Crítico'].meaning,
 });
 
 /** Missing fields in legacy state inherit defaults; invalid saved values fail explicitly. */
@@ -47,9 +55,16 @@ export function validatePromptTexts(value: unknown): PromptTexts {
   }
   return result;
 }
-export interface MainValues { persona: string; approach: string; action: string; outcome: string; meaning: string; cheat: boolean }
+const effectKeys: Record<Outcome, PromptKey> = { Falha: 'effectFailure', 'Sucesso Parcial': 'effectPartialSuccess', Sucesso: 'effectSuccess', 'Sucesso Crítico': 'effectCriticalSuccess' };
+export function outcomeEffect(text: PromptTexts, outcome: Outcome): string {
+  const key = effectKeys[outcome];
+  if (!key) throw Error('Categoria de resultado inválida.');
+  return text[key];
+}
+export interface MainValues { persona: string; approach: string; action: string; outcome: Outcome; cheat: boolean }
 export function mainNote(text: PromptTexts, value: MainValues): string {
   // No template interpolation/evaluation: all dynamic slots are always inserted by code.
-  return `((${text.mainOpening}${value.persona}${text.mainBeforeApproach}${value.approach}${text.mainBeforeAction}${value.action}${text.mainBeforeResult}${value.outcome}${text.mainBeforeMeaning}${value.meaning}${text.mainAfterMeaning}${value.cheat ? text.mainCheat : ''}${text.mainClosing}))`;
+  const meaning = outcomeEffect(text, value.outcome);
+  return `((${text.mainOpening}${value.persona}${text.mainBeforeApproach}${value.approach}${text.mainBeforeAction}${value.action}${text.mainBeforeResult}${modelOutcomes[value.outcome].label}${text.mainBeforeMeaning}${meaning}${text.mainAfterMeaning}${value.cheat ? text.mainCheat : ''}${text.mainClosing}))`;
 }
-export const previewValues: MainValues = { persona: 'Alice', approach: 'Clever', action: 'open the safe', outcome: 'Critical Success', meaning: 'the objective is achieved with an additional benefit', cheat: true };
+export const previewValues: MainValues = { persona: 'Alice', approach: 'Clever', action: 'open the safe', outcome: 'Sucesso Crítico', cheat: true };

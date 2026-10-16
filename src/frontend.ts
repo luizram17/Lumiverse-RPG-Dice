@@ -1,7 +1,7 @@
 import type { SpindleFrontendContext } from 'lumiverse-spindle-types';
 import type { DiceEngine, Audit } from './engine';
-import { approaches, defaultScores, outcomes, type Outcome } from './rules';
-import { defaultPromptTexts, mainNote, previewValues, promptFields, promptTexts, type PromptTexts } from './prompts';
+import { approaches, defaultScores, modelOutcomes, outcomes, type Outcome } from './rules';
+import { defaultPromptTexts, mainNote, outcomeEffect, previewValues, promptFields, promptTexts, type PromptTexts } from './prompts';
 type View = Awaited<ReturnType<DiceEngine['view']>>;
 export function clampPosition(p: { x: number; y: number }, width: number, height: number) { return { x: Math.max(0, Math.min(p.x, width - 56)), y: Math.max(0, Math.min(p.y, height - 56)) }; }
 export function setup(ctx: SpindleFrontendContext) {
@@ -27,6 +27,7 @@ export function setup(ctx: SpindleFrontendContext) {
   const diceButton = document.createElement('button'); diceButton.className = 'rpg-dice-float'; diceButton.textContent = '⚄'; diceButton.setAttribute('aria-label', 'Abrir histórico de rolagens RPG Dice; arraste para mover'); float?.root.append(diceButton);
   let view: View | undefined; let selectedPersona = ''; let status = ''; let disposed = false; let modal: ReturnType<SpindleFrontendContext['ui']['showModal']> | undefined; let busy = false; let latestRequest = ''; let positioned = false;
   let promptDraft: PromptTexts | undefined; let submittedPrompts: PromptTexts | undefined;
+  let previewOutcome: Outcome = previewValues.outcome;
   const promptEditorOpen = new Map<HTMLElement, boolean>();
   const roots = [drawer.root, ...(settingsTab ? [settingsTab.root] : []), ...(settingsMount ? [settingsMount] : [])];
   const modelMounts = new Map<HTMLElement, ReturnType<SpindleFrontendContext['components']['mountModelCombobox']>>();
@@ -42,20 +43,21 @@ export function setup(ctx: SpindleFrontendContext) {
     for (const root of roots) {
       for (const input of root.querySelectorAll<HTMLTextAreaElement>('textarea[data-prompt-key]')) { const value = texts[input.dataset.promptKey as keyof PromptTexts]; if (input.value !== value) input.value = value; }
       const preview = root.querySelector<HTMLTextAreaElement>('[data-prompt-preview]');
-      if (preview) preview.value = mainNote(texts, previewValues);
+      if (preview) preview.value = mainNote(texts, { ...previewValues, outcome: previewOutcome });
+      const selector = root.querySelector<HTMLSelectElement>('[data-preview-outcome]'); if (selector) selector.value = previewOutcome;
+      const category = root.querySelector<HTMLTextAreaElement>('[data-preview-category]'); if (category) category.value = modelOutcomes[previewOutcome].label;
     }
   }
   function renderPromptEditors(panel: HTMLElement, open: boolean) {
     const details = element('details'); details.open = open; details.dataset.promptEditor = ''; details.append(element('summary', 'Editar textos enviados aos modelos')); panel.append(details);
-    details.append(element('p', 'Edite todos os textos fixos do árbitro auxiliar e da nota final do principal. Os padrões estão em inglês; você pode escrever no idioma que preferir. Espaços e quebras de linha são preservados. Salve para aplicar nesta conta.'));
-    details.append(element('p', 'Os campos tracejados são exemplos somente leitura. Persona, abordagem, ação, resultado e efeito sempre vêm do código. Não há substituição de marcadores nem execução de templates. A prévia não chama modelos nem sorteia dados.', 'rpg-muted'));
+    details.append(element('p', 'Edite todos os textos fixos do árbitro auxiliar, da nota final do principal e dos efeitos de cada resultado. Os padrões estão em inglês; você pode escrever no idioma que preferir. Espaços e quebras de linha são preservados. Salve para aplicar nesta conta.'));
+    details.append(element('p', 'Os campos tracejados são exemplos somente leitura. Persona, abordagem, ação e categoria vêm do código. O efeito usa o texto editado para a categoria obtida. Não há substituição de marcadores nem execução de templates. A prévia não chama modelos nem sorteia dados.', 'rpg-muted'));
     const texts = promptDraft || promptTexts(view?.state.prompts);
     const dynamic: Partial<Record<keyof PromptTexts, [string, string]>> = {
       mainOpening: ['Nome da persona · variável protegida (exemplo)', previewValues.persona],
       mainBeforeApproach: ['Abordagem · variável protegida (exemplo)', previewValues.approach],
       mainBeforeAction: ['Ação · variável protegida (exemplo)', previewValues.action],
-      mainBeforeResult: ['Categoria · variável protegida (exemplo)', previewValues.outcome],
-      mainBeforeMeaning: ['Efeito · variável protegida (exemplo)', previewValues.meaning],
+      mainBeforeResult: ['Categoria · variável protegida (exemplo)', modelOutcomes[previewOutcome].label],
     };
     const readOnly = (label: string, value: string, rows = 2) => { const output = element('textarea'); output.readOnly = true; output.value = value; output.rows = rows; field(details, label, output); return output; };
     for (const spec of promptFields) {
@@ -65,11 +67,14 @@ export function setup(ctx: SpindleFrontendContext) {
       if (spec.key === 'refereeSystem') {
         details.append(element('p', 'O texto acima é o system completo do auxiliar, incluindo suas instruções de JSON. O código continua exigindo roll booleano; reason de 1–600 caracteres; e, se roll=true, abordagem válida, DT inteira −2…8, bônus inteiro 0…4 e action de 1–400 caracteres. Alterar essas instruções não altera a validação nem as regras.', 'rpg-muted'));
         readOnly('Auxiliar — estrutura do contexto user (somente leitura; valores reais inseridos pelo código)', JSON.stringify({ persona: { id: '<id>', name: '<nome>', title: '<título>', description: '<descrição>' }, savedApproaches: defaultScores(), history: [{ id: '<id>', role: '<papel>', name: '<nome>', content: '<histórico>' }], latestAction: { messageId: '<id>', personaId: '<id>', text: '<ação atual>', ooc: ['<instruções OOC>'] } }, null, 2), 8);
-        details.append(element('p', 'Principal: o código abre ((, insere os trechos abaixo na ordem exibida e fecha )). O trecho CHEAT só entra em testes que já possuem CHEAT. Os nomes e efeitos das categorias seguem as regras da extensão.', 'rpg-muted'));
+        details.append(element('p', 'Principal: o código abre ((, compõe a nota com os trechos fixos abaixo, insere o efeito da categoria obtida e fecha )). O trecho CHEAT só entra em testes que já possuem CHEAT. A categoria segue as regras da extensão; seu efeito narrativo pode ser editado nos quatro campos de efeito.', 'rpg-muted'));
       }
-      const slot = dynamic[spec.key]; if (slot) readOnly(...slot);
+      const slot = dynamic[spec.key]; if (slot) { const output = readOnly(...slot); if (spec.key === 'mainBeforeResult') output.dataset.previewCategory = ''; }
     }
-    const preview = readOnly('Prévia da nota final — exemplo com CHEAT (somente leitura)', mainNote(texts, previewValues), 7); preview.dataset.promptPreview = '';
+    const selector = element('select'); selector.dataset.previewOutcome = ''; for (const outcome of outcomes) selector.append(new Option(outcome, outcome)); selector.value = previewOutcome;
+    selector.addEventListener('change', () => { previewOutcome = selector.value as Outcome; refreshPromptEditors(); });
+    field(details, 'Resultado da prévia — somente exemplo, não altera rolagens nem cheats', selector);
+    const preview = readOnly('Prévia da nota final — exemplo com CHEAT (somente leitura)', mainNote(texts, { ...previewValues, outcome: previewOutcome }), 7); preview.dataset.promptPreview = '';
     const actions = element('div', '', 'rpg-prompt-actions');
     const saveTexts = element('button', 'Salvar textos dos modelos'); saveTexts.disabled = busy;
     saveTexts.addEventListener('click', () => { if (busy) return; submittedPrompts = { ...(promptDraft || promptTexts(view?.state.prompts)) }; save({ prompts: submittedPrompts }); });
@@ -114,7 +119,7 @@ export function setup(ctx: SpindleFrontendContext) {
   function auditArticle(audit: Audit) {
     const card = element('article'); const r = audit.roll!; card.append(element('strong', `${audit.personaName} · ${r.outcome}`), element('p', new Date(audit.timestamp).toLocaleString('pt-BR'), 'rpg-muted'));
     if (audit.fudge) card.append(element('p', `CHEAT — resultado garantido: ${audit.fudge.requested}. Categoria natural: ${audit.fudge.naturalOutcome}.`, 'rpg-cheat'));
-    card.append(element('p', `${audit.decision.approach}: [${r.dice.join(', ')}] = ${r.diceTotal}; atributo ${r.attribute}; bônus ${r.bonus}; total ${r.total}; DT ${r.difficulty}.`), element('p', `Efeito: ${r.meaning}.`), element('p', `Ação: ${audit.decision.action}`), element('p', `Motivo: ${audit.decision.reason}`, 'rpg-muted')); return card;
+    card.append(element('p', `${audit.decision.approach}: [${r.dice.join(', ')}] = ${r.diceTotal}; atributo ${r.attribute}; bônus ${r.bonus}; total ${r.total}; DT ${r.difficulty}.`), element('p', `Efeito (texto atual): ${outcomeEffect(promptTexts(view?.state.prompts), r.outcome as Outcome)}`), element('p', `Ação: ${audit.decision.action}`), element('p', `Motivo: ${audit.decision.reason}`, 'rpg-muted')); return card;
   }
   function renderHistory() {
     if (!modal) return; const panel = element('div', '', 'rpg-dice'); modal.root.replaceChildren(panel); panel.append(element('p', view?.chat ? `Chat: ${view.chat.name}` : 'Abra um chat para ver as rolagens.'), element('p', status, 'rpg-status'));
