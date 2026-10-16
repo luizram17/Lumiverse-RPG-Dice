@@ -89,7 +89,11 @@ var promptFields = [
   { key: "mainBeforeMeaning", label: "Principal — antes do efeito do resultado", limit: 4000 },
   { key: "mainAfterMeaning", label: "Principal — depois do efeito", limit: 4000 },
   { key: "mainCheat", label: "Principal — instrução adicional quando há CHEAT", limit: 4000 },
-  { key: "mainClosing", label: "Principal — encerramento e diretrizes OOC", limit: 4000 }
+  { key: "mainClosing", label: "Principal — encerramento e diretrizes OOC", limit: 4000 },
+  { key: "effectFailure", label: "Efeito de Falha — texto para o principal", limit: 4000 },
+  { key: "effectPartialSuccess", label: "Efeito de Sucesso Parcial — texto para o principal", limit: 4000 },
+  { key: "effectSuccess", label: "Efeito de Sucesso — texto para o principal", limit: 4000 },
+  { key: "effectCriticalSuccess", label: "Efeito de Sucesso Crítico — texto para o principal", limit: 4000 }
 ];
 var defaultPromptTexts = () => ({
   refereeSystem: refereePrompt,
@@ -100,7 +104,11 @@ var defaultPromptTexts = () => ({
   mainBeforeMeaning: " — ",
   mainAfterMeaning: ".",
   mainCheat: " Authorized CHEAT: this OOC-guaranteed outcome overrides the numerical comparison.",
-  mainClosing: " Respect all OOC instructions; do not reroll or reclassify this check."
+  mainClosing: " Respect all OOC instructions; do not reroll or reclassify this check.",
+  effectFailure: modelOutcomes.Falha.meaning,
+  effectPartialSuccess: modelOutcomes["Sucesso Parcial"].meaning,
+  effectSuccess: modelOutcomes.Sucesso.meaning,
+  effectCriticalSuccess: modelOutcomes["Sucesso Crítico"].meaning
 });
 function promptTexts(value) {
   const defaults = defaultPromptTexts();
@@ -126,10 +134,18 @@ function validatePromptTexts(value) {
   }
   return result;
 }
-function mainNote(text, value) {
-  return `((${text.mainOpening}${value.persona}${text.mainBeforeApproach}${value.approach}${text.mainBeforeAction}${value.action}${text.mainBeforeResult}${value.outcome}${text.mainBeforeMeaning}${value.meaning}${text.mainAfterMeaning}${value.cheat ? text.mainCheat : ""}${text.mainClosing}))`;
+var effectKeys = { Falha: "effectFailure", "Sucesso Parcial": "effectPartialSuccess", Sucesso: "effectSuccess", "Sucesso Crítico": "effectCriticalSuccess" };
+function outcomeEffect(text, outcome) {
+  const key = effectKeys[outcome];
+  if (!key)
+    throw Error("Categoria de resultado inválida.");
+  return text[key];
 }
-var previewValues = { persona: "Alice", approach: "Clever", action: "open the safe", outcome: "Critical Success", meaning: "the objective is achieved with an additional benefit", cheat: true };
+function mainNote(text, value) {
+  const meaning = outcomeEffect(text, value.outcome);
+  return `((${text.mainOpening}${value.persona}${text.mainBeforeApproach}${value.approach}${text.mainBeforeAction}${value.action}${text.mainBeforeResult}${modelOutcomes[value.outcome].label}${text.mainBeforeMeaning}${meaning}${text.mainAfterMeaning}${value.cheat ? text.mainCheat : ""}${text.mainClosing}))`;
+}
+var previewValues = { persona: "Alice", approach: "Clever", action: "open the safe", outcome: "Sucesso Crítico", cheat: true };
 
 // src/engine.ts
 var initial = () => ({ version: 1, settings: { enabled: false, connectionId: "", model: "" }, personas: {} });
@@ -173,8 +189,7 @@ function inject(messages, audit, texts = defaultPromptTexts()) {
   if (!audit.roll)
     return { messages };
   const r = audit.roll;
-  const outcome = modelOutcomes[r.outcome];
-  const note = mainNote(texts, { persona: cleanInline(audit.personaName), approach: modelApproaches[audit.decision.approach], action: cleanInline(audit.decision.action || ""), outcome: outcome.label, meaning: outcome.meaning, cheat: Boolean(audit.fudge) });
+  const note = mainNote(texts, { persona: cleanInline(audit.personaName), approach: modelApproaches[audit.decision.approach], action: cleanInline(audit.decision.action || ""), outcome: r.outcome, cheat: Boolean(audit.fudge) });
   return { messages: [...messages, { role: "user", content: note }], breakdown: [{ messageIndex: messages.length, name: "RPG Dice — resultado automático" }] };
 }
 
