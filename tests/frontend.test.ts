@@ -2,7 +2,7 @@ import {expect,test,afterEach} from 'bun:test';
 import {JSDOM} from 'jsdom';
 import type {SpindleFrontendContext} from 'lumiverse-spindle-types';
 import {setup,clampPosition} from '../src/frontend';
-import {defaultScores} from '../src/rules';
+import {defaultScores,modelOutcomes,outcomes} from '../src/rules';
 import {defaultPromptTexts,promptFields} from '../src/prompts';
 function uiFixture(fallbacks=false){
  const dom=new JSDOM('<!doctype html><body></body>',{url:'http://localhost'}); Object.assign(globalThis,{window:dom.window,document:dom.window.document,Option:dom.window.Option});
@@ -26,11 +26,25 @@ test('editores reais cobrem todos os textos; prévia e slots readonly sem execut
  expect(f.drawer.querySelectorAll('textarea[data-prompt-key]')).toHaveLength(promptFields.length);
  for(const spec of promptFields){const input=f.drawer.querySelector<HTMLTextAreaElement>(`[data-prompt-key="${spec.key}"]`)!;expect(input.readOnly).toBe(false);expect(input.maxLength).toBe(spec.limit);input.value=` ${spec.key}\n<script>bad()</script>\${literal} `;input.dispatchEvent(new f.dom.window.Event('input'));expect(f.settings.querySelector<HTMLTextAreaElement>(`[data-prompt-key="${spec.key}"]`)!.value).toBe(input.value);}
  expect(f.requests).toHaveLength(before);expect(f.drawer.querySelector('script')).toBeNull();
- const preview=f.drawer.querySelector<HTMLTextAreaElement>('[data-prompt-preview]')!;expect(preview.readOnly).toBe(true);for(const value of ['Alice','Clever','open the safe','Critical Success','the objective is achieved with an additional benefit'])expect(preview.value).toContain(value);
- const protectedFields=f.drawer.querySelectorAll<HTMLTextAreaElement>('textarea[readonly]');expect(protectedFields).toHaveLength(7);for(const input of protectedFields)input.value='tampered';
+ const preview=f.drawer.querySelector<HTMLTextAreaElement>('[data-prompt-preview]')!;expect(preview.readOnly).toBe(true);for(const value of ['Alice','Clever','open the safe','Critical Success','effectCriticalSuccess'])expect(preview.value).toContain(value);
+ const protectedFields=f.drawer.querySelectorAll<HTMLTextAreaElement>('textarea[readonly]');expect(protectedFields).toHaveLength(6);for(const input of protectedFields)input.value='tampered';
  [...f.drawer.querySelectorAll('button')].find(b=>b.textContent==='Salvar textos dos modelos')!.click();
  const sent=f.requests.at(-1);expect(Object.keys(sent.prompts)).toEqual(promptFields.map(s=>s.key));expect(JSON.stringify(sent.prompts)).not.toContain('tampered');expect(sent.prompts.refereeSystem).toContain('${literal}');
  f.view.state.prompts=sent.prompts;f.reply();expect(f.drawer.querySelector<HTMLTextAreaElement>('[data-prompt-key="mainOpening"]')!.value).toBe(sent.prompts.mainOpening);f.cleanup();
+});
+
+test('seletor da prévia mostra os quatro efeitos ao vivo sem salvar resultado ou cheat; histórico usa apenas textos salvos',()=>{
+ const f=uiFixture();f.reply();const before=f.requests.length;const keys=['effectFailure','effectPartialSuccess','effectSuccess','effectCriticalSuccess'];
+ for(const [i,outcome] of outcomes.entries()){
+  const input=f.drawer.querySelector<HTMLTextAreaElement>(`[data-prompt-key="${keys[i]}"]`)!;input.value=`<img src=x onerror=bad()> efeito-${i}`;input.dispatchEvent(new f.dom.window.Event('input'));
+  const selector=f.drawer.querySelector<HTMLSelectElement>('[data-preview-outcome]')!;selector.value=outcome;selector.dispatchEvent(new f.dom.window.Event('change'));
+  for(const root of [f.drawer,f.settings]){expect(root.querySelector<HTMLTextAreaElement>('[data-prompt-preview]')!.value).toContain(`${modelOutcomes[outcome].label} — ${input.value}`);expect(root.querySelector<HTMLTextAreaElement>('[data-preview-category]')!.value).toBe(modelOutcomes[outcome].label);expect(root.querySelector<HTMLSelectElement>('[data-preview-outcome]')!.value).toBe(outcome);expect(root.querySelector('img')).toBeNull();}
+ }
+ expect(f.requests).toHaveLength(before);expect(f.view.ledger.activeCheat).toBeNull();
+ const audit={personaName:'Alice',timestamp:new Date(0).toISOString(),decision:{approach:'Astuto',action:'open',reason:'risk'},roll:{outcome:'Falha',meaning:'snapshot original',dice:[0,0,0,0],diceTotal:0,attribute:2,bonus:1,total:3,difficulty:4}};
+ f.view.ledger.records.push(audit as never);f.view.state.prompts.effectFailure='saved effect';(f.float.querySelector('button') as HTMLButtonElement).click();
+ expect(f.modal!.textContent).toContain('Efeito (texto atual): saved effect');expect(f.modal!.textContent).not.toContain('efeito-0');expect(audit.roll.meaning).toBe('snapshot original');
+ [...f.drawer.querySelectorAll('button')].find(b=>b.textContent==='Salvar textos dos modelos')!.click();expect(f.requests.at(-1).outcome).toBeUndefined();expect(f.requests.at(-1).prompts.previewOutcome).toBeUndefined();expect(f.requests.at(-1).prompts.effectFailure).toContain('efeito-0');f.cleanup();
 });
 
 test('rascunho resiste a auditoria/erro; reset explícito salva somente textos e defaults legados carregam',()=>{
