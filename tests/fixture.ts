@@ -1,6 +1,6 @@
 import type { SpindleAPI, InterceptorContextDTO, LlmMessageDTO } from 'lumiverse-spindle-types';
 import { DiceEngine } from '../src/engine';
-export const decision = { roll: true, approach: 'Astuto', difficulty: 2, bonus: 1, action: 'abrir o cofre', reason: 'Há oposição; usa raciocínio e tem ferramentas adequadas.' };
+export const decision = { roll: true, attribute: 'INTELLIGENCE', difficulty: 10, skillCandidates: [], action: 'abrir o cofre', reason: 'Há oposição; usa raciocínio para compreender a fechadura.' };
 export function message(id: string, content: string, role: 'system'|'user'|'assistant' = 'user', index = 0, chatId = 'chatA') { return { id, chat_id: chatId, role, name: role === 'user' ? 'Persona' : 'NPC', index_in_chat: index, content, parent_message_id: null as string|null, branch_id:null, send_date:0,created_at:0,swipe_dates:[0],is_user: role === 'user', extra: {}, swipes: [content], swipe_id:0 }; }
 export function context(userId = 'userAAAA', chatId = 'chatA', type = 'normal'): InterceptorContextDTO { return { userId, chatId, generationType: type, personaId: 'personaA', signal: new AbortController().signal, isDryRun: false } as InterceptorContextDTO; }
 export function fixture() {
@@ -14,7 +14,7 @@ export function fixture() {
     chat:{getMessages:async(id:string)=>structuredClone(histories[id]||[])},chats:{get:async(id:string)=>({id,name:id}),getActive:async()=>({id:'chatA',name:'Chat A'})},
     generate:{raw:async(input:any)=>{calls.push(input);return handler?handler(input):answer;}},sendToFrontend:()=>{},toast:{error:(...args:unknown[])=>toasts.push(args)}
   } as unknown as SpindleAPI;
-  const engine = new DiceEngine(api,()=>[0,0,0,0]);
+  const engine = new DiceEngine(api,()=>[5,5]);
   const prompt = (id='m1'): LlmMessageDTO[]=>[{role:'system',content:'Prompt inteiro'}, {role:'user',content:'ação montada',__isChatHistory:true,sourceMessageId:id}];
   return { api, engine, files, histories, calls, writes, toasts, prompt, setAnswer:(a:any)=>answer=a,setHandler:(h:(i:any)=>Promise<any>)=>handler=h, setFailCommit:(v:boolean)=>failCommit=v };
 }

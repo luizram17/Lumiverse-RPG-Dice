@@ -14,10 +14,10 @@ test('estado legado herda padrões sem alterar fichas, perfil ou arquivo ao carr
   expect(promptTexts({ mainOpening: 'Custom ' }).refereeSystem).toBe(defaultPromptTexts().refereeSystem);
 });
 
-test('todos os nove textos personalizados da 1.0.3 são preservados com quatro defaults novos', async () => {
+test('treze textos personalizados da 1.0.4 são preservados com contrato novo editável', async () => {
   const f = fixture(); await enable(f);
   const old = JSON.parse(f.files.get('userAAAA/state.json')!);
-  const legacy = Object.fromEntries(promptFields.slice(0, 9).map((field, i) => [field.key, ` custom-${i}\n `]));
+  const legacy = Object.fromEntries(promptFields.filter(f => f.key !== 'refereeContract').map((field, i) => [field.key, ` custom-${i}\n `]));
   old.prompts = legacy; const raw = JSON.stringify(old); f.files.set('userAAAA/state.json', raw);
   const migrated = await f.engine.load('userAAAA');
   expect(migrated.prompts).toEqual({ ...defaultPromptTexts(), ...legacy });
@@ -58,7 +58,7 @@ test('auxiliar usa system editado exato sem prosa oculta; contexto e contrato pe
   const custom = { ...defaultPromptTexts(), refereeSystem: 'Custom referee schema and directions.\nJSON only.', effectFailure: 'PRIVATE EFFECT FAILURE', effectPartialSuccess: 'PRIVATE EFFECT PARTIAL', effectSuccess: 'PRIVATE EFFECT SUCCESS', effectCriticalSuccess: 'PRIVATE EFFECT CRITICAL' };
   await f.engine.configure('userAAAA', { prompts: custom });
   await f.engine.intercept(f.prompt(), context());
-  expect(f.calls[0].messages[0]).toEqual({ role: 'system', content: custom.refereeSystem });
+  expect(f.calls[0].messages[0]).toEqual({ role: 'system', content: `${custom.refereeSystem}\n\n${custom.refereeContract}` });
   expect(f.calls[0].messages).toHaveLength(2);
   expect(JSON.stringify(f.calls[0])).not.toContain('PRIVATE EFFECT');
   expect(JSON.parse(f.calls[0].messages[1].content).latestAction.text).toBe('Tento abrir o cofre.');
@@ -75,14 +75,14 @@ test('todos os trechos main editados chegam ao prompt; cache usa texto atual e p
   const custom = Object.fromEntries(promptFields.map((field, i) => [field.key, `fixed-${i}|`])) as ReturnType<typeof defaultPromptTexts>;
   await f.engine.configure('userAAAA', { prompts: custom });
   const result = await new DiceEngine(f.api).intercept(f.prompt(), context('userAAAA', 'chatA', 'regenerate'));
-  expect(result.messages.at(-1)!.content).toBe('((fixed-1|Alicefixed-2|Cleverfixed-3|abrir o cofrefixed-4|Critical Successfixed-5|fixed-12|fixed-6|fixed-7|fixed-8|))');
+  expect(result.messages.at(-1)!.content).toBe('((fixed-2|Alicefixed-3|INTELLIGENCE +0fixed-4|abrir o cofrefixed-5|Critical Successfixed-6|fixed-13|fixed-7|fixed-8|fixed-9|))');
   expect(result.messages.at(-1)!.role).toBe('user');
   expect(result.messages.slice(0, -1)).toEqual(f.prompt());
   expect(f.calls).toHaveLength(1); expect(await f.engine.ledger('userAAAA', 'chatA')).toEqual(before);
   const empty = Object.fromEntries(promptFields.map(field => [field.key, ''])) as ReturnType<typeof defaultPromptTexts>;
   await f.engine.configure('userAAAA', { prompts: empty });
   const stripped = await f.engine.intercept(f.prompt(), context('userAAAA', 'chatA', 'continue'));
-  for (const value of ['Alice', 'Clever', 'abrir o cofre', 'Critical Success']) expect(stripped.messages.at(-1)!.content).toContain(value);
+  for (const value of ['Alice', 'INTELLIGENCE +0', 'abrir o cofre', 'Critical Success']) expect(stripped.messages.at(-1)!.content).toContain(value);
   expect(stripped.messages.at(-1)!.content).not.toContain('the objective is achieved');
   expect(f.calls).toHaveLength(1);
 });
@@ -94,10 +94,11 @@ test('quatro efeitos seguem a categoria natural ou CHEAT e o cache usa o texto a
     const custom = { ...defaultPromptTexts(), ...Object.fromEntries(keys.map((key, n) => [key, `EFFECT-${n}`])) };
     await f.engine.configure('userAAAA', { prompts: custom });
     if (cheat) await f.engine.setCheat('userAAAA', 'chatA', outcome);
-    f.setAnswer({ content: JSON.stringify({ ...decision, difficulty: cheat ? 0 : [4, 3, 2, 0][i] }) });
-    const result = await f.engine.intercept(f.prompt(), context());
+    f.setAnswer({ content: JSON.stringify({ ...decision, difficulty: cheat ? 10 : [15, 14, 10, 100][i] }) });
+    const engine = new DiceEngine(f.api, () => !cheat && i === 3 ? [10,10] : [5,5]);
+    const result = await engine.intercept(f.prompt(), context());
     const before = await f.engine.ledger('userAAAA', 'chatA'); const roll = before.records[0].roll!;
-    expect(roll.outcome).toBe(outcome); expect(roll.total).toBe(3); expect(roll.dice).toEqual([0, 0, 0, 0]);
+    expect(roll.outcome).toBe(outcome); expect(roll.total).toBe(!cheat && i === 3 ? 20 : 10); expect(roll.dice).toEqual(!cheat && i === 3 ? [10,10] : [5,5]);
     expect(Boolean(before.records[0].fudge)).toBe(cheat);
     const note = result.messages.at(-1)!.content as string;
     expect(note).toContain(`${modelOutcomes[outcome].label} — EFFECT-${i}`);
@@ -116,7 +117,7 @@ test('quatro efeitos seguem a categoria natural ou CHEAT e o cache usa o texto a
 
 test('CHEAT condicional, padrões equivalentes e nenhum template executado', () => {
   const text = defaultPromptTexts();
-  expect(mainNote(text, { ...previewValues, cheat: false })).toBe('((An automatic skill check was completed for character Alice (Clever). Action: open the safe. Result: Critical Success — the objective is achieved with an additional benefit. Respect all OOC instructions; do not reroll or reclassify this check.))');
+  expect(mainNote(text, { ...previewValues, cheat: false })).toBe('((An automatic skill check was completed for character Alice (INTELLIGENCE +2; Carpentry +1.5 (×0.5)). Action: open the safe. Result: Critical Success — the objective is achieved with an additional benefit. Respect all OOC instructions; do not reroll or reclassify this check.))');
   expect(mainNote(text, previewValues)).toContain(text.mainCheat);
   expect(mainNote({ ...text, mainOpening: '${throw new Error()} <script>bad()</script>' }, previewValues)).toContain('${throw new Error()} <script>bad()</script>Alice');
 });
